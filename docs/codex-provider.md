@@ -91,49 +91,8 @@ bun run dev -p \
 
 ## Acceptance Checks
 
-Recommended manual acceptance commands:
-
-```bash
-export CLAUDE_CODE_USE_CODEX=1
-export OPENAI_API_KEY=your_api_key
-export CODEX_MODEL=gpt-5-codex
-```
-
-Plain text path:
-
-```bash
-bun run dev -p "Explain the repository structure"
-```
-
-Structured output success path:
-
-```bash
-bun run dev -p \
-  --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}' \
-  "Return a JSON object with summary"
-```
-
-Structured output stream-json success path:
-
-```bash
-bun run dev -p \
-  --output-format stream-json \
-  --verbose \
-  --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}' \
-  "Return a JSON object with summary"
-```
-
-Fail-fast local allowlist path:
-
-```bash
-CODEX_MODEL=gpt-4o-mini \
-bun run dev -p \
-  --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}' \
-  "Return a JSON object with summary"
-```
-
-Expected result: the CLI exits non-zero before sending the request and reports
-that the model is not enabled for Codex `--json-schema` mode in this build.
+For the release acceptance checklist and command-by-command expectations, see
+[codex-acceptance.md](./codex-acceptance.md).
 
 When `--json-schema` is enabled:
 

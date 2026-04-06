@@ -3,40 +3,32 @@ import type {
   CodexStreamEvent,
   CodexStructuredOutputFormat,
 } from './types.js'
+import {
+  formatCodexApiError,
+  tryParseCodexApiErrorBody,
+} from './errors.js'
 
-function getResponseErrorMessage(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== 'object') {
-    return undefined
-  }
-
-  if (
-    'error' in payload &&
-    payload.error &&
-    typeof payload.error === 'object' &&
-    'message' in payload.error &&
-    typeof payload.error.message === 'string'
-  ) {
-    return payload.error.message
-  }
-
-  if ('message' in payload && typeof payload.message === 'string') {
-    return payload.message
-  }
-
-  return undefined
-}
-
-async function buildHttpError(response: Response): Promise<Error> {
+async function buildHttpError({
+  response,
+  model,
+  usedStructuredOutput,
+}: {
+  response: Response
+  model: string
+  usedStructuredOutput: boolean
+}): Promise<Error> {
   const bodyText = await response.text()
+  const parsed = tryParseCodexApiErrorBody(bodyText)
 
-  try {
-    const parsed = JSON.parse(bodyText)
-    const message = getResponseErrorMessage(parsed)
-    if (message) {
-      return new Error(`Codex API error (${response.status}): ${message}`)
-    }
-  } catch {
-    // Fall through to raw body handling.
+  if (parsed) {
+    return new Error(
+      formatCodexApiError({
+        status: response.status,
+        body: parsed,
+        model,
+        usedStructuredOutput,
+      }),
+    )
   }
 
   const detail = bodyText.trim() || response.statusText || 'Unknown error'
@@ -90,7 +82,11 @@ export async function createCodexResponseStream({
   })
 
   if (!response.ok) {
-    throw await buildHttpError(response)
+    throw await buildHttpError({
+      response,
+      model: config.model,
+      usedStructuredOutput: Boolean(structuredOutputFormat),
+    })
   }
 
   if (!response.body) {

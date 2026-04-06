@@ -1,4 +1,8 @@
-import type { CodexRuntimeConfig, CodexStreamEvent } from './types.js'
+import type {
+  CodexRuntimeConfig,
+  CodexStreamEvent,
+  CodexStructuredOutputFormat,
+} from './types.js'
 
 function getResponseErrorMessage(payload: unknown): string | undefined {
   if (!payload || typeof payload !== 'object') {
@@ -43,11 +47,13 @@ export async function createCodexResponseStream({
   config,
   input,
   instructions,
+  structuredOutputFormat,
   signal,
 }: {
   config: CodexRuntimeConfig
   input: string
   instructions?: string
+  structuredOutputFormat?: CodexStructuredOutputFormat
   signal?: AbortSignal
 }): Promise<Response> {
   const headers: Record<string, string> = {
@@ -71,6 +77,13 @@ export async function createCodexResponseStream({
       model: config.model,
       input,
       stream: true,
+      ...(structuredOutputFormat
+        ? {
+            text: {
+              format: structuredOutputFormat,
+            },
+          }
+        : {}),
       ...(instructions ? { instructions } : {}),
     }),
     signal,

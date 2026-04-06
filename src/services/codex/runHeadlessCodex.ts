@@ -13,6 +13,11 @@ import {
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
 import {
+  compileCodexJsonSchema,
+  type CompiledCodexJsonSchema,
+  validateCodexStructuredOutput,
+} from './schema.js'
+import {
   extractCompletedResponse,
   extractResponseText,
   extractTextDelta,
@@ -41,10 +46,6 @@ type HeadlessCodexOptions = {
 function buildUnsupportedModeMessage(options: HeadlessCodexOptions): string | null {
   if (options.continue || options.resume || options.resumeSessionAt) {
     return 'Codex provider currently only supports fresh single-turn --print requests. Resume/continue is not supported.'
-  }
-
-  if (options.jsonSchema) {
-    return 'Codex provider currently does not support --json-schema.'
   }
 
   if (options.sdkUrl || options.replayUserMessages || options.includePartialMessages) {
@@ -125,6 +126,7 @@ function buildSuccessResult({
     usage,
     modelUsage: {},
     permission_denials: [],
+    structured_output: undefined,
     uuid: randomUUID(),
     session_id: getSessionId(),
   }
@@ -150,6 +152,24 @@ function buildErrorResult({
     modelUsage: {},
     permission_denials: [],
     errors: [error],
+    validation_error: undefined,
+    uuid: randomUUID(),
+    session_id: getSessionId(),
+  }
+}
+
+function buildStructuredOutputEvent({
+  parsedResult,
+  validationError,
+}: {
+  parsedResult?: unknown
+  validationError?: string
+}): StdoutMessage {
+  return {
+    type: 'system',
+    subtype: 'codex_json_schema',
+    ...(parsedResult !== undefined ? { parsed_result: parsedResult } : {}),
+    ...(validationError ? { validation_error: validationError } : {}),
     uuid: randomUUID(),
     session_id: getSessionId(),
   }
@@ -207,6 +227,27 @@ export async function runHeadlessCodex({
   }
 
   const config = getCodexRuntimeConfig(options.userSpecifiedModel)
+  let compiledSchema: CompiledCodexJsonSchema | undefined
+  if (options.jsonSchema) {
+    try {
+      compiledSchema = compileCodexJsonSchema({
+        jsonSchema: options.jsonSchema,
+        model: config.model,
+      })
+    } catch (error) {
+      const message = errorMessage(error)
+      if (options.outputFormat === 'stream-json') {
+        await structuredIO.write(
+          buildStructuredOutputEvent({
+            validationError: message,
+          }),
+        )
+      }
+      await writeCodexError(structuredIO, options.outputFormat, message)
+      return { exitCode: 1 }
+    }
+  }
+
   const instructions = buildInstructions({
     systemPrompt: options.systemPrompt,
     appendSystemPrompt: options.appendSystemPrompt,
@@ -218,13 +259,14 @@ export async function runHeadlessCodex({
   process.on('SIGINT', sigintHandler)
 
   let accumulatedText = ''
-  let usage = EMPTY_USAGE
+  let usage: NonNullableUsage = EMPTY_USAGE
 
   try {
     const response = await createCodexResponseStream({
       config,
       input: prompt,
       instructions,
+      structuredOutputFormat: compiledSchema?.format,
       signal: abortController.signal,
     })
 
@@ -240,7 +282,7 @@ export async function runHeadlessCodex({
 
         if (options.outputFormat === 'stream-json') {
           await structuredIO.write(buildStreamEvent(delta))
-        } else if (options.outputFormat !== 'json') {
+        } else if (options.outputFormat !== 'json' && !compiledSchema) {
           writeToStdout(delta)
         }
       }
@@ -250,11 +292,63 @@ export async function runHeadlessCodex({
         const completedText = extractResponseText(completedResponse)
         if (completedText && !accumulatedText) {
           accumulatedText = completedText
-          if (options.outputFormat !== 'json' && options.outputFormat !== 'stream-json') {
+          if (
+            options.outputFormat !== 'json' &&
+            options.outputFormat !== 'stream-json' &&
+            !compiledSchema
+          ) {
             writeToStdout(completedText)
           }
         }
         usage = extractUsage(completedResponse)
+      }
+    }
+
+    let structuredOutput: unknown
+    if (compiledSchema) {
+      const validation = validateCodexStructuredOutput({
+        rawText: accumulatedText,
+        validate: compiledSchema.validate,
+      })
+
+      if (!validation.ok) {
+        if (options.outputFormat === 'stream-json') {
+          await structuredIO.write(
+            buildStructuredOutputEvent({
+              validationError: validation.error,
+            }),
+          )
+        }
+
+        const result = buildErrorResult({
+          error: validation.error,
+          durationMs: Date.now() - start,
+        })
+
+        result.validation_error = validation.error
+
+        switch (options.outputFormat) {
+          case 'json':
+            writeToStdout(jsonStringify(result) + '\n')
+            break
+          case 'stream-json':
+            await structuredIO.write(result)
+            break
+          default:
+            process.stderr.write(`Error: ${validation.error}\n`)
+        }
+
+        return { exitCode: 1 }
+      }
+
+      structuredOutput = validation.parsedResult
+
+      if (options.outputFormat === 'stream-json') {
+        await structuredIO.write(
+          buildStructuredOutputEvent({
+            parsedResult: structuredOutput,
+          }),
+        )
       }
     }
 
@@ -263,6 +357,7 @@ export async function runHeadlessCodex({
       durationMs: Date.now() - start,
       usage,
     })
+    result.structured_output = structuredOutput
 
     switch (options.outputFormat) {
       case 'json':
@@ -272,7 +367,13 @@ export async function runHeadlessCodex({
         await structuredIO.write(result)
         break
       default:
-        if (!accumulatedText.endsWith('\n')) {
+        if (compiledSchema) {
+          writeToStdout(
+            accumulatedText.endsWith('\n')
+              ? accumulatedText
+              : accumulatedText + '\n',
+          )
+        } else if (!accumulatedText.endsWith('\n')) {
           writeToStdout('\n')
         }
     }
@@ -286,6 +387,7 @@ export async function runHeadlessCodex({
       error: message,
       durationMs: Date.now() - start,
     })
+    result.validation_error = message
 
     switch (options.outputFormat) {
       case 'json':

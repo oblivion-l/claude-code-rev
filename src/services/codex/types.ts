@@ -6,6 +6,13 @@ export type CodexRuntimeConfig = {
   project?: string
 }
 
+export type CodexStructuredOutputFormat = {
+  type: 'json_schema'
+  name: string
+  schema: Record<string, unknown>
+  strict: true
+}
+
 export type CodexStreamEvent = {
   type: string
   [key: string]: unknown

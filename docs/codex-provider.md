@@ -89,6 +89,52 @@ bun run dev -p \
   "Return the main source files as JSON"
 ```
 
+## Acceptance Checks
+
+Recommended manual acceptance commands:
+
+```bash
+export CLAUDE_CODE_USE_CODEX=1
+export OPENAI_API_KEY=your_api_key
+export CODEX_MODEL=gpt-5-codex
+```
+
+Plain text path:
+
+```bash
+bun run dev -p "Explain the repository structure"
+```
+
+Structured output success path:
+
+```bash
+bun run dev -p \
+  --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}' \
+  "Return a JSON object with summary"
+```
+
+Structured output stream-json success path:
+
+```bash
+bun run dev -p \
+  --output-format stream-json \
+  --verbose \
+  --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}' \
+  "Return a JSON object with summary"
+```
+
+Fail-fast local allowlist path:
+
+```bash
+CODEX_MODEL=gpt-4o-mini \
+bun run dev -p \
+  --json-schema '{"type":"object","properties":{"summary":{"type":"string"}},"required":["summary"],"additionalProperties":false}' \
+  "Return a JSON object with summary"
+```
+
+Expected result: the CLI exits non-zero before sending the request and reports
+that the model is not enabled for Codex `--json-schema` mode in this build.
+
 When `--json-schema` is enabled:
 
 - the CLI sends the schema to the Codex Responses API using strict structured output mode
@@ -108,6 +154,19 @@ When `--json-schema` is enabled:
 
 - The selected model is outside the current allowlist for this MVP.
 - Use `CODEX_MODEL=gpt-5-codex` unless you have explicitly verified another supported Codex/GPT-5 model.
+
+`Codex model ... is not supported for this request`
+
+- The request reached the API, but the API explicitly rejected the model.
+- This is more specific than the local allowlist error: it means the backend
+  itself rejected the selected model or model capability.
+
+`Codex structured outputs are not supported for model ... or this API parameter set`
+
+- The request reached the API, but the API explicitly rejected `text.format`
+  or a closely related structured-output parameter.
+- This usually means the model/backend combination does not support structured
+  outputs on the Responses API path you are using.
 
 `Codex structured output is not valid JSON`
 

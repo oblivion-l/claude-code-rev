@@ -39,12 +39,14 @@ export async function createCodexResponseStream({
   config,
   input,
   instructions,
+  previousResponseId,
   structuredOutputFormat,
   signal,
 }: {
   config: CodexRuntimeConfig
   input: string
   instructions?: string
+  previousResponseId?: string
   structuredOutputFormat?: CodexStructuredOutputFormat
   signal?: AbortSignal
 }): Promise<Response> {
@@ -69,6 +71,11 @@ export async function createCodexResponseStream({
       model: config.model,
       input,
       stream: true,
+      ...(previousResponseId
+        ? {
+            previous_response_id: previousResponseId,
+          }
+        : {}),
       ...(structuredOutputFormat
         ? {
             text: {

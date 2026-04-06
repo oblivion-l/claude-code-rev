@@ -190,6 +190,10 @@ import { getLastCacheSafeParams } from 'src/utils/forkedAgent.js'
 import { getAccountInformation } from 'src/utils/auth.js'
 import { OAuthService } from 'src/services/oauth/index.js'
 import { installOAuthTokens } from 'src/cli/handlers/auth.js'
+import {
+  getHeadlessConversationState,
+  setHeadlessConversationState,
+} from 'src/services/headless/conversationState.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import { resolveHeadlessProvider } from 'src/services/headless/providers.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
@@ -796,28 +800,40 @@ export async function runHeadless(
   const headlessProvider = resolveHeadlessProvider()
   if (headlessProvider) {
     registerProcessOutputErrorHandlers()
+    const conversationState = getHeadlessConversationState(
+      headlessProvider.metadata.id,
+    )
 
-    const { exitCode } = await headlessProvider.run({
-      inputPrompt,
-      structuredIO,
-      options: {
-        continue: options.continue,
-        resume: options.resume,
-        resumeSessionAt: options.resumeSessionAt,
-        outputFormat: options.outputFormat,
-        verbose: options.verbose,
-        jsonSchema: options.jsonSchema,
-        systemPrompt: options.systemPrompt,
-        appendSystemPrompt: options.appendSystemPrompt,
-        userSpecifiedModel: options.userSpecifiedModel,
-        sdkUrl: options.sdkUrl,
-        replayUserMessages: options.replayUserMessages,
-        includePartialMessages: options.includePartialMessages,
-        forkSession: options.forkSession,
-        rewindFiles: options.rewindFiles,
-        agent: options.agent,
-      },
-    })
+    const { exitCode, conversationState: nextConversationState } =
+      await headlessProvider.run({
+        inputPrompt,
+        structuredIO,
+        options: {
+          continue: options.continue,
+          resume: options.resume,
+          resumeSessionAt: options.resumeSessionAt,
+          outputFormat: options.outputFormat,
+          verbose: options.verbose,
+          jsonSchema: options.jsonSchema,
+          systemPrompt: options.systemPrompt,
+          appendSystemPrompt: options.appendSystemPrompt,
+          userSpecifiedModel: options.userSpecifiedModel,
+          sdkUrl: options.sdkUrl,
+          replayUserMessages: options.replayUserMessages,
+          includePartialMessages: options.includePartialMessages,
+          forkSession: options.forkSession,
+          rewindFiles: options.rewindFiles,
+          agent: options.agent,
+        },
+        conversationState,
+      })
+
+    if (nextConversationState) {
+      setHeadlessConversationState(
+        headlessProvider.metadata.id,
+        nextConversationState,
+      )
+    }
     gracefulShutdownSync(exitCode)
     return
   }

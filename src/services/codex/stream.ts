@@ -110,6 +110,19 @@ export function extractCompletedResponse(
   return undefined
 }
 
+export function extractResponseId(response: unknown): string | undefined {
+  if (
+    response &&
+    typeof response === 'object' &&
+    'id' in response &&
+    typeof response.id === 'string'
+  ) {
+    return response.id
+  }
+
+  return undefined
+}
+
 export function getCodexFailureMessage(event: CodexStreamEvent): string | null {
   if (
     event.type === 'error' &&

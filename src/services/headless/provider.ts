@@ -37,13 +37,16 @@ export type HeadlessProviderRunArgs = {
   inputPrompt: string | AsyncIterable<string>
   structuredIO: StructuredIO
   options: HeadlessProviderOptions
+  conversationState?: HeadlessConversationState | null
 }
 
 export type HeadlessProviderRunResult = {
   exitCode: number
+  conversationState?: HeadlessConversationState | null
 }
 
 export type HeadlessProviderCapabilities = {
+  supportsContinue: boolean
   supportsResume: boolean
   supportsStructuredOutput: boolean
   supportsConversationState: boolean

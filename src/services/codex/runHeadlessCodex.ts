@@ -2,12 +2,13 @@ import { randomUUID } from 'crypto'
 import type { StructuredIO } from 'src/cli/structuredIO.js'
 import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import type {
+  HeadlessConversationState,
   HeadlessProvider,
   HeadlessProviderErrorCode,
   HeadlessProviderOptions,
 } from 'src/services/headless/provider.js'
 import {
-  getProviderMultiTurnUnsupportedMessage,
+  checkProviderContinuationSupport,
   providerSupportsStructuredOutput,
 } from 'src/services/headless/capabilities.js'
 import {
@@ -34,6 +35,7 @@ import {
 } from './schema.js'
 import {
   extractCompletedResponse,
+  extractResponseId,
   extractResponseText,
   extractTextDelta,
   extractUsage,
@@ -198,22 +200,25 @@ export async function runHeadlessCodex({
   inputPrompt,
   structuredIO,
   options,
+  conversationState,
 }: {
   inputPrompt: string | AsyncIterable<string>
   structuredIO: StructuredIO
   options: HeadlessProviderOptions
-}): Promise<{ exitCode: number }> {
+  conversationState?: HeadlessConversationState | null
+}): Promise<{ exitCode: number; conversationState?: HeadlessConversationState | null }> {
   const provider = createCodexHeadlessProvider()
-  const multiTurnUnsupportedMessage = getProviderMultiTurnUnsupportedMessage(
+  const continuationCheck = checkProviderContinuationSupport(
     provider,
     options,
+    conversationState,
   )
-  if (multiTurnUnsupportedMessage) {
+  if (!continuationCheck.ok) {
     await writeCodexError(
       structuredIO,
       options.outputFormat,
-      multiTurnUnsupportedMessage,
-      getHeadlessProviderUnsupportedModeCode(),
+      continuationCheck.message,
+      continuationCheck.errorCode,
     )
     return { exitCode: 1 }
   }
@@ -298,12 +303,15 @@ export async function runHeadlessCodex({
 
   let accumulatedText = ''
   let usage: NonNullableUsage = EMPTY_USAGE
+  let nextConversationState: HeadlessConversationState | null =
+    continuationCheck.conversationState ?? null
 
   try {
     const response = await createCodexResponseStream({
       config,
       input: prompt,
       instructions,
+      previousResponseId: continuationCheck.conversationState?.lastResponseId,
       structuredOutputFormat: compiledSchema?.format,
       signal: abortController.signal,
     })
@@ -327,6 +335,7 @@ export async function runHeadlessCodex({
 
       const completedResponse = extractCompletedResponse(event)
       if (completedResponse) {
+        const responseId = extractResponseId(completedResponse)
         const completedText = extractResponseText(completedResponse)
         if (completedText && !accumulatedText) {
           accumulatedText = completedText
@@ -339,6 +348,12 @@ export async function runHeadlessCodex({
           }
         }
         usage = extractUsage(completedResponse)
+        if (responseId) {
+          nextConversationState = {
+            providerId: provider.metadata.id,
+            lastResponseId: responseId,
+          }
+        }
       }
     }
 
@@ -417,7 +432,10 @@ export async function runHeadlessCodex({
         }
     }
 
-    return { exitCode: 0 }
+    return {
+      exitCode: 0,
+      conversationState: nextConversationState,
+    }
   } catch (error) {
     const message = isAbortError(error)
       ? 'Request interrupted by user'
@@ -440,7 +458,10 @@ export async function runHeadlessCodex({
         process.stderr.write(`Error: ${message}\n`)
     }
 
-    return { exitCode: 1 }
+    return {
+      exitCode: 1,
+      conversationState: nextConversationState,
+    }
   } finally {
     process.off('SIGINT', sigintHandler)
   }
@@ -453,9 +474,15 @@ export function createCodexHeadlessProvider(): HeadlessProvider {
       displayName: 'Codex',
     },
     capabilities: {
+      supportsContinue: true,
       supportsResume: false,
       supportsStructuredOutput: true,
-      supportsConversationState: false,
+      supportsConversationState: true,
+    },
+    createConversationState() {
+      return {
+        providerId: 'codex',
+      }
     },
     run: runHeadlessCodex,
   }

@@ -1,6 +1,10 @@
 import { randomUUID } from 'crypto'
 import type { StructuredIO } from 'src/cli/structuredIO.js'
 import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
+import type {
+  HeadlessProvider,
+  HeadlessProviderOptions,
+} from 'src/services/headless/provider.js'
 import { getSessionId } from 'src/bootstrap/state.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
 import type { NonNullableUsage } from 'src/entrypoints/sdk/sdkUtilityTypes.js'
@@ -25,25 +29,9 @@ import {
   getCodexFailureMessage,
 } from './stream.js'
 
-type HeadlessCodexOptions = {
-  continue: boolean | undefined
-  resume: string | boolean | undefined
-  resumeSessionAt: string | undefined
-  outputFormat: string | undefined
-  verbose: boolean | undefined
-  jsonSchema: Record<string, unknown> | undefined
-  systemPrompt: string | undefined
-  appendSystemPrompt: string | undefined
-  userSpecifiedModel: string | undefined
-  sdkUrl: string | undefined
-  replayUserMessages: boolean | undefined
-  includePartialMessages: boolean | undefined
-  forkSession: boolean | undefined
-  rewindFiles: string | undefined
-  agent: string | undefined
-}
-
-function buildUnsupportedModeMessage(options: HeadlessCodexOptions): string | null {
+function buildUnsupportedModeMessage(
+  options: HeadlessProviderOptions,
+): string | null {
   if (options.continue || options.resume || options.resumeSessionAt) {
     return 'Codex provider currently only supports fresh single-turn --print requests. Resume/continue is not supported.'
   }
@@ -204,7 +192,7 @@ export async function runHeadlessCodex({
 }: {
   inputPrompt: string | AsyncIterable<string>
   structuredIO: StructuredIO
-  options: HeadlessCodexOptions
+  options: HeadlessProviderOptions
 }): Promise<{ exitCode: number }> {
   const unsupportedModeMessage = buildUnsupportedModeMessage(options)
   if (unsupportedModeMessage) {
@@ -403,5 +391,16 @@ export async function runHeadlessCodex({
     return { exitCode: 1 }
   } finally {
     process.off('SIGINT', sigintHandler)
+  }
+}
+
+export function createCodexHeadlessProvider(): HeadlessProvider {
+  return {
+    id: 'codex',
+    capabilities: {
+      supportsResume: false,
+      supportsStructuredOutput: true,
+    },
+    run: runHeadlessCodex,
   }
 }

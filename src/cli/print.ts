@@ -191,8 +191,7 @@ import { getAccountInformation } from 'src/utils/auth.js'
 import { OAuthService } from 'src/services/oauth/index.js'
 import { installOAuthTokens } from 'src/cli/handlers/auth.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
-import { isCodexHeadlessEnabled } from 'src/services/codex/config.js'
-import { runHeadlessCodex } from 'src/services/codex/runHeadlessCodex.js'
+import { resolveHeadlessProvider } from 'src/services/headless/providers.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
@@ -794,10 +793,11 @@ export async function runHeadless(
     return
   }
 
-  if (isCodexHeadlessEnabled()) {
+  const headlessProvider = resolveHeadlessProvider()
+  if (headlessProvider) {
     registerProcessOutputErrorHandlers()
 
-    const { exitCode } = await runHeadlessCodex({
+    const { exitCode } = await headlessProvider.run({
       inputPrompt,
       structuredIO,
       options: {

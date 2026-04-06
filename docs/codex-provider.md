@@ -17,6 +17,7 @@ The integration is intentionally narrow in scope:
 - `--output-format stream-json --verbose` streaming events plus a final result
 - `--output-format json` final result output
 - `--system-prompt` and `--append-system-prompt`
+- `--json-schema` strict structured output validation for single-turn headless requests
 
 ## What It Does Not Support Yet
 
@@ -25,7 +26,7 @@ The integration is intentionally narrow in scope:
 - `--input-format stream-json`
 - tool calling through the existing tool orchestration pipeline
 - MCP / agent workflows
-- structured output via `--json-schema`
+- interactive tool use or agent orchestration inside a structured-output turn
 
 Unsupported combinations fail fast with a direct error message instead of
 silently falling back to another path.
@@ -69,6 +70,59 @@ JSON final result:
 ```bash
 bun run dev -p --output-format json "List the top risks in this codebase"
 ```
+
+Structured output with `--json-schema`:
+
+```bash
+bun run dev -p \
+  --json-schema '{"type":"object","properties":{"summary":{"type":"string"},"risk":{"type":"string"}},"required":["summary"],"additionalProperties":false}' \
+  "Summarize this repository as JSON"
+```
+
+Structured output with stream-json:
+
+```bash
+bun run dev -p \
+  --output-format stream-json \
+  --verbose \
+  --json-schema '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}' \
+  "Return the main source files as JSON"
+```
+
+When `--json-schema` is enabled:
+
+- the CLI sends the schema to the Codex Responses API using strict structured output mode
+- the final response is parsed as JSON locally
+- the parsed JSON is validated against the provided schema
+- validation failures return a non-zero exit code
+- in `stream-json` mode, a final `system` event with subtype `codex_json_schema` is emitted and contains either `parsed_result` or `validation_error`
+
+## Common Errors
+
+`Invalid JSON Schema for --json-schema`
+
+- The schema could not be compiled locally.
+- Check for malformed JSON Schema fields such as invalid `properties`, invalid `type`, or broken nested schema objects.
+
+`Model ... is not enabled for Codex --json-schema mode in this CLI build`
+
+- The selected model is outside the current allowlist for this MVP.
+- Use `CODEX_MODEL=gpt-5-codex` unless you have explicitly verified another supported Codex/GPT-5 model.
+
+`Codex structured output is not valid JSON`
+
+- The model returned text that could not be parsed as JSON.
+- Tighten the prompt and keep the response target narrow.
+
+`Codex structured output does not match the provided schema`
+
+- The model returned JSON, but the object failed local schema validation.
+- Check required fields, field types, and `additionalProperties`.
+
+API-side schema rejection or unsupported keyword errors
+
+- This means the schema compiled locally but was rejected by the OpenAI API's structured output subset.
+- Remove unsupported keywords or simplify the schema shape.
 
 ## Rollback
 

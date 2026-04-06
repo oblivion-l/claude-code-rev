@@ -6,7 +6,10 @@ import type {
   HeadlessProviderErrorCode,
   HeadlessProviderOptions,
 } from 'src/services/headless/provider.js'
-import { providerSupportsStructuredOutput } from 'src/services/headless/capabilities.js'
+import {
+  getProviderMultiTurnUnsupportedMessage,
+  providerSupportsStructuredOutput,
+} from 'src/services/headless/capabilities.js'
 import {
   getHeadlessProviderExecutionErrorCode,
   getHeadlessProviderInvalidInputCode,
@@ -40,10 +43,6 @@ import {
 function buildUnsupportedModeMessage(
   options: HeadlessProviderOptions,
 ): string | null {
-  if (options.continue || options.resume || options.resumeSessionAt) {
-    return 'Codex provider currently only supports fresh single-turn --print requests. Resume/continue is not supported.'
-  }
-
   if (options.sdkUrl || options.replayUserMessages || options.includePartialMessages) {
     return 'Codex provider currently only supports local text input in --print mode.'
   }
@@ -204,6 +203,21 @@ export async function runHeadlessCodex({
   structuredIO: StructuredIO
   options: HeadlessProviderOptions
 }): Promise<{ exitCode: number }> {
+  const provider = createCodexHeadlessProvider()
+  const multiTurnUnsupportedMessage = getProviderMultiTurnUnsupportedMessage(
+    provider,
+    options,
+  )
+  if (multiTurnUnsupportedMessage) {
+    await writeCodexError(
+      structuredIO,
+      options.outputFormat,
+      multiTurnUnsupportedMessage,
+      getHeadlessProviderUnsupportedModeCode(),
+    )
+    return { exitCode: 1 }
+  }
+
   const unsupportedModeMessage = buildUnsupportedModeMessage(options)
   if (unsupportedModeMessage) {
     await writeCodexError(
@@ -226,7 +240,6 @@ export async function runHeadlessCodex({
     return { exitCode: 1 }
   }
 
-  const provider = createCodexHeadlessProvider()
   const config = getCodexRuntimeConfig(options.userSpecifiedModel)
   let compiledSchema: CompiledCodexJsonSchema | undefined
   if (options.jsonSchema) {
@@ -442,6 +455,7 @@ export function createCodexHeadlessProvider(): HeadlessProvider {
     capabilities: {
       supportsResume: false,
       supportsStructuredOutput: true,
+      supportsConversationState: false,
     },
     run: runHeadlessCodex,
   }

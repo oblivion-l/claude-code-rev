@@ -8,6 +8,13 @@ export type HeadlessProviderErrorCode =
   | `${typeof HEADLESS_PROVIDER_ERROR_PREFIX}_INVALID_INPUT`
   | `${typeof HEADLESS_PROVIDER_ERROR_PREFIX}_EXECUTION_ERROR`
 
+export type HeadlessConversationState = {
+  providerId: string
+  conversationId?: string
+  lastResponseId?: string
+  metadata?: Record<string, unknown>
+}
+
 export type HeadlessProviderOptions = {
   continue: boolean | undefined
   resume: string | boolean | undefined
@@ -39,6 +46,7 @@ export type HeadlessProviderRunResult = {
 export type HeadlessProviderCapabilities = {
   supportsResume: boolean
   supportsStructuredOutput: boolean
+  supportsConversationState: boolean
 }
 
 export type HeadlessProviderMetadata = {
@@ -49,5 +57,6 @@ export type HeadlessProviderMetadata = {
 export type HeadlessProvider = {
   metadata: HeadlessProviderMetadata
   capabilities: HeadlessProviderCapabilities
+  createConversationState?: () => HeadlessConversationState
   run(args: HeadlessProviderRunArgs): Promise<HeadlessProviderRunResult>
 }

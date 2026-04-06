@@ -87,7 +87,24 @@ describe('headless capability helpers', () => {
     ).toEqual({
       ok: false,
       message:
-        'Codex provider currently only supports fresh single-turn --print requests. Resume/continue is not supported.',
+        'Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.',
+      errorCode: 'HEADLESS_PROVIDER_UNSUPPORTED_MODE',
+    })
+  })
+
+  it('keeps resumeSessionAt fail-fast for Codex', () => {
+    const provider = createCodexHeadlessProvider()
+
+    expect(
+      checkProviderContinuationSupport(provider, {
+        continue: undefined,
+        resume: undefined,
+        resumeSessionAt: 'msg_123',
+      }),
+    ).toEqual({
+      ok: false,
+      message:
+        'Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.',
       errorCode: 'HEADLESS_PROVIDER_UNSUPPORTED_MODE',
     })
   })

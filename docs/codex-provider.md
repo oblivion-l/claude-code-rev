@@ -8,7 +8,7 @@ The integration is intentionally narrow in scope:
 - it does not replace the existing Claude/Anthropic provider stack
 - it does not change the existing command tree or CLI bootstrap
 - it only activates when an explicit environment flag is enabled
-- it only supports single-turn `--print` text requests in this first phase
+- it only supports headless `--print` requests in this phase, with same-process `--continue` as a minimal extension
 
 ## What It Supports
 
@@ -18,11 +18,13 @@ The integration is intentionally narrow in scope:
 - `--output-format json` final result output
 - `--system-prompt` and `--append-system-prompt`
 - `--json-schema` strict structured output validation for single-turn headless requests
+- same-process `--continue` when an in-memory Codex conversation state already exists
 
 ## What It Does Not Support Yet
 
 - interactive REPL mode
-- resume / continue / rewind / fork session flows
+- `--resume`, `--resume-session-at`, rewind, or fork session flows
+- cross-process conversation recovery for `--continue`
 - `--input-format stream-json`
 - tool calling through the existing tool orchestration pipeline
 - MCP / agent workflows
@@ -102,6 +104,13 @@ When `--json-schema` is enabled:
 - validation failures return a non-zero exit code
 - in `stream-json` mode, a final `system` event with subtype `codex_json_schema` is emitted and contains either `parsed_result` or `validation_error`
 
+When `--continue` is enabled:
+
+- Codex only supports continue within the same process
+- the provider requires an in-memory prior response id from an earlier Codex headless request
+- starting a fresh CLI process does not restore this state
+- `--resume` and `--resume-session-at` still fail fast
+
 ## Common Errors
 
 `Invalid JSON Schema for --json-schema`
@@ -136,6 +145,16 @@ When `--json-schema` is enabled:
 
 - The model returned JSON, but the object failed local schema validation.
 - Check required fields, field types, and `additionalProperties`.
+
+`Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.`
+
+- `--continue` was used without an in-memory Codex response chain.
+- This is expected after starting a new process or before any earlier Codex headless request has completed.
+
+`Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.`
+
+- `--resume` and `--resume-session-at` remain unsupported on the Codex headless path.
+- Use a fresh request, or only use `--continue` when staying inside the same process.
 
 API-side schema rejection or unsupported keyword errors
 

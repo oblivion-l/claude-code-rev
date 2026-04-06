@@ -52,7 +52,7 @@ export function checkProviderContinuationSupport(
     if (!providerSupportsResume(provider)) {
       return {
         ok: false,
-        message: `${provider.metadata.displayName} provider currently only supports fresh single-turn --print requests. Resume/continue is not supported.`,
+        message: `${provider.metadata.displayName} provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.`,
         errorCode: getHeadlessProviderUnsupportedModeCode(),
       }
     }

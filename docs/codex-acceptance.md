@@ -5,10 +5,10 @@ This document is the release-acceptance checklist for the headless Codex path.
 Scope of acceptance:
 
 - headless `--print` only
-- single-turn prompts only
+- single-turn prompts plus same-process `--continue`
 - optional `--json-schema` structured outputs
 - no REPL changes
-- no multi-turn or resume changes
+- no `--resume` or cross-process recovery changes
 - no MCP or tool orchestration changes
 
 ## Environment
@@ -175,6 +175,34 @@ Expected:
   - `Codex structured outputs are not supported for model ... or this API parameter set`
   - `Codex structured output request was rejected by the API for model ...`
 
+### 8. Continue without in-process state fail-fast path
+
+Run:
+
+```bash
+bun run dev -p --continue "Follow up on the prior answer"
+```
+
+Expected:
+
+- command exits non-zero in a fresh process
+- error message includes:
+  `Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.`
+
+### 9. Resume fail-fast path
+
+Run:
+
+```bash
+bun run dev -p --resume "Follow up on the prior answer"
+```
+
+Expected:
+
+- command exits non-zero
+- error message includes:
+  `Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.`
+
 ## Error Reference
 
 | Error text | Meaning | Suggested action |
@@ -187,6 +215,8 @@ Expected:
 | `Invalid JSON Schema for --json-schema` | Local schema compilation failed | Fix schema shape |
 | `Codex structured output is not valid JSON` | Model returned non-JSON text | Tighten prompt and request shape |
 | `Codex structured output does not match the provided schema` | Returned JSON failed local schema validation | Fix prompt or schema |
+| `Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.` | `--continue` was used without live in-memory state from an earlier Codex request | Re-run within the same process or start a fresh request |
+| `Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.` | `--resume` / `--resume-session-at` are still unsupported on the Codex headless path | Use a fresh request, or only use same-process `--continue` |
 
 ## Rollback
 

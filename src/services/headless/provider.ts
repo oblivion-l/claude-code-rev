@@ -1,6 +1,7 @@
 import type { StructuredIO } from 'src/cli/structuredIO.js'
 
 export const HEADLESS_PROVIDER_ERROR_PREFIX = 'HEADLESS_PROVIDER'
+export const HEADLESS_CONVERSATION_STATE_VERSION = 1
 
 export type HeadlessProviderErrorCode =
   | `${typeof HEADLESS_PROVIDER_ERROR_PREFIX}_UNSUPPORTED_MODE`
@@ -10,9 +11,22 @@ export type HeadlessProviderErrorCode =
 
 export type HeadlessConversationState = {
   providerId: string
+  version?: number
+  stateId?: string
+  cwd?: string
+  createdAt?: string
+  updatedAt?: string
   conversationId?: string
   lastResponseId?: string
+  lastAssistantMessageUuid?: string
+  history?: HeadlessConversationTurnState[]
   metadata?: Record<string, unknown>
+}
+
+export type HeadlessConversationTurnState = {
+  assistantMessageUuid: string
+  responseId: string
+  createdAt: string
 }
 
 export type HeadlessProviderOptions = {

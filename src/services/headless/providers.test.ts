@@ -24,9 +24,13 @@ describe('createCodexHeadlessProvider', () => {
       displayName: 'Codex',
     })
     expect(provider.capabilities).toEqual({
+      supportsContinue: true,
       supportsResume: false,
       supportsStructuredOutput: true,
-      supportsConversationState: false,
+      supportsConversationState: true,
+    })
+    expect(provider.createConversationState?.()).toEqual({
+      providerId: 'codex',
     })
   })
 })

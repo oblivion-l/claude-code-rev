@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import { createCodexHeadlessProvider } from 'src/services/codex/runHeadlessCodex.js'
 import {
-  getProviderMultiTurnUnsupportedMessage,
+  checkProviderContinuationSupport,
+  providerSupportsContinue,
   providerSupportsConversationState,
   providerSupportsResume,
   providerSupportsStructuredOutput,
@@ -20,35 +21,74 @@ describe('headless capability helpers', () => {
     expect(providerSupportsResume(provider)).toBe(false)
   })
 
+  it('reads the Codex continue capability', () => {
+    const provider = createCodexHeadlessProvider()
+
+    expect(providerSupportsContinue(provider)).toBe(true)
+  })
+
   it('reads the Codex conversation-state capability', () => {
     const provider = createCodexHeadlessProvider()
 
-    expect(providerSupportsConversationState(provider)).toBe(false)
+    expect(providerSupportsConversationState(provider)).toBe(true)
   })
 
-  it('returns the stable multi-turn unsupported message for Codex', () => {
+  it('allows continue when in-process state is available', () => {
     const provider = createCodexHeadlessProvider()
 
     expect(
-      getProviderMultiTurnUnsupportedMessage(provider, {
+      checkProviderContinuationSupport(
+        provider,
+        {
+          continue: true,
+          resume: undefined,
+          resumeSessionAt: undefined,
+        },
+        {
+          providerId: 'codex',
+          lastResponseId: 'resp_123',
+        },
+      ),
+    ).toEqual({
+      ok: true,
+      conversationState: {
+        providerId: 'codex',
+        lastResponseId: 'resp_123',
+      },
+    })
+  })
+
+  it('fails continue when no in-process state is available', () => {
+    const provider = createCodexHeadlessProvider()
+
+    expect(
+      checkProviderContinuationSupport(provider, {
         continue: true,
         resume: undefined,
         resumeSessionAt: undefined,
       }),
-    ).toBe(
-      'Codex provider currently only supports fresh single-turn --print requests. Resume/continue is not supported.',
-    )
+    ).toEqual({
+      ok: false,
+      message:
+        'Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.',
+      errorCode: 'HEADLESS_PROVIDER_INVALID_INPUT',
+    })
   })
 
-  it('returns null when no multi-turn parameters are requested', () => {
+  it('keeps resume fail-fast for Codex', () => {
     const provider = createCodexHeadlessProvider()
 
     expect(
-      getProviderMultiTurnUnsupportedMessage(provider, {
+      checkProviderContinuationSupport(provider, {
         continue: undefined,
-        resume: undefined,
+        resume: true,
         resumeSessionAt: undefined,
       }),
-    ).toBeNull()
+    ).toEqual({
+      ok: false,
+      message:
+        'Codex provider currently only supports fresh single-turn --print requests. Resume/continue is not supported.',
+      errorCode: 'HEADLESS_PROVIDER_UNSUPPORTED_MODE',
+    })
   })
 })

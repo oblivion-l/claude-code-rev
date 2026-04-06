@@ -191,11 +191,16 @@ import { getAccountInformation } from 'src/utils/auth.js'
 import { OAuthService } from 'src/services/oauth/index.js'
 import { installOAuthTokens } from 'src/cli/handlers/auth.js'
 import {
+  HeadlessConversationStateError,
   getHeadlessConversationState,
   setHeadlessConversationState,
 } from 'src/services/headless/conversationState.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import { resolveHeadlessProvider } from 'src/services/headless/providers.js'
+import {
+  getHeadlessProviderInvalidInputCode,
+  writeHeadlessProviderError,
+} from 'src/services/headless/errors.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
@@ -800,9 +805,38 @@ export async function runHeadless(
   const headlessProvider = resolveHeadlessProvider()
   if (headlessProvider) {
     registerProcessOutputErrorHandlers()
-    const conversationState = getHeadlessConversationState(
-      headlessProvider.metadata.id,
-    )
+    let conversationState = null
+
+    try {
+      if (typeof options.resume === 'string') {
+        conversationState = getHeadlessConversationState(
+          headlessProvider.metadata.id,
+          {
+            stateId: options.resume,
+          },
+        )
+      } else if (options.continue || options.resume) {
+        conversationState = getHeadlessConversationState(
+          headlessProvider.metadata.id,
+          {
+            cwd: process.cwd(),
+          },
+        )
+      }
+    } catch (error) {
+      if (error instanceof HeadlessConversationStateError) {
+        await writeHeadlessProviderError(
+          structuredIO,
+          options.outputFormat,
+          error.message,
+          getHeadlessProviderInvalidInputCode(),
+        )
+        gracefulShutdownSync(1)
+        return
+      }
+
+      throw error
+    }
 
     const { exitCode, conversationState: nextConversationState } =
       await headlessProvider.run({
@@ -832,6 +866,9 @@ export async function runHeadless(
       setHeadlessConversationState(
         headlessProvider.metadata.id,
         nextConversationState,
+        {
+          cwd: process.cwd(),
+        },
       )
     }
     gracefulShutdownSync(exitCode)

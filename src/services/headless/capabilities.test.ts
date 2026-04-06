@@ -18,7 +18,7 @@ describe('headless capability helpers', () => {
   it('reads the Codex resume capability', () => {
     const provider = createCodexHeadlessProvider()
 
-    expect(providerSupportsResume(provider)).toBe(false)
+    expect(providerSupportsResume(provider)).toBe(true)
   })
 
   it('reads the Codex continue capability', () => {
@@ -70,12 +70,53 @@ describe('headless capability helpers', () => {
     ).toEqual({
       ok: false,
       message:
-        'Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.',
+        'Codex provider continue requested but no conversation state is available for the current directory.',
       errorCode: 'HEADLESS_PROVIDER_INVALID_INPUT',
     })
   })
 
-  it('keeps resume fail-fast for Codex', () => {
+  it('allows resume when persisted state is available', () => {
+    const provider = createCodexHeadlessProvider()
+
+    expect(
+      checkProviderContinuationSupport(
+        provider,
+        {
+          continue: undefined,
+          resume: true,
+          resumeSessionAt: undefined,
+        },
+        {
+          providerId: 'codex',
+          stateId: 'state_123',
+          lastResponseId: 'resp_123',
+          history: [
+            {
+              assistantMessageUuid: 'msg_123',
+              responseId: 'resp_123',
+              createdAt: '2026-04-06T00:00:00.000Z',
+            },
+          ],
+        },
+      ),
+    ).toEqual({
+      ok: true,
+      conversationState: {
+        providerId: 'codex',
+        stateId: 'state_123',
+        lastResponseId: 'resp_123',
+        history: [
+          {
+            assistantMessageUuid: 'msg_123',
+            responseId: 'resp_123',
+            createdAt: '2026-04-06T00:00:00.000Z',
+          },
+        ],
+      },
+    })
+  })
+
+  it('fails resume when no persisted state is available', () => {
     const provider = createCodexHeadlessProvider()
 
     expect(
@@ -87,25 +128,87 @@ describe('headless capability helpers', () => {
     ).toEqual({
       ok: false,
       message:
-        'Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.',
-      errorCode: 'HEADLESS_PROVIDER_UNSUPPORTED_MODE',
+        'Codex provider resume requested but no persisted conversation state is available.',
+      errorCode: 'HEADLESS_PROVIDER_INVALID_INPUT',
     })
   })
 
-  it('keeps resumeSessionAt fail-fast for Codex', () => {
+  it('allows resumeSessionAt when the persisted assistant turn exists', () => {
     const provider = createCodexHeadlessProvider()
 
     expect(
-      checkProviderContinuationSupport(provider, {
-        continue: undefined,
-        resume: undefined,
-        resumeSessionAt: 'msg_123',
-      }),
+      checkProviderContinuationSupport(
+        provider,
+        {
+          continue: undefined,
+          resume: true,
+          resumeSessionAt: 'msg_123',
+        },
+        {
+          providerId: 'codex',
+          stateId: 'state_123',
+          lastResponseId: 'resp_456',
+          history: [
+            {
+              assistantMessageUuid: 'msg_123',
+              responseId: 'resp_123',
+              createdAt: '2026-04-06T00:00:00.000Z',
+            },
+            {
+              assistantMessageUuid: 'msg_456',
+              responseId: 'resp_456',
+              createdAt: '2026-04-06T01:00:00.000Z',
+            },
+          ],
+        },
+      ),
+    ).toEqual({
+      ok: true,
+      conversationState: {
+        providerId: 'codex',
+        stateId: 'state_123',
+        lastResponseId: 'resp_123',
+        lastAssistantMessageUuid: 'msg_123',
+        history: [
+          {
+            assistantMessageUuid: 'msg_123',
+            responseId: 'resp_123',
+            createdAt: '2026-04-06T00:00:00.000Z',
+          },
+        ],
+      },
+    })
+  })
+
+  it('fails resumeSessionAt when the persisted assistant turn does not exist', () => {
+    const provider = createCodexHeadlessProvider()
+
+    expect(
+      checkProviderContinuationSupport(
+        provider,
+        {
+          continue: undefined,
+          resume: true,
+          resumeSessionAt: 'missing_msg',
+        },
+        {
+          providerId: 'codex',
+          stateId: 'state_123',
+          lastResponseId: 'resp_456',
+          history: [
+            {
+              assistantMessageUuid: 'msg_123',
+              responseId: 'resp_123',
+              createdAt: '2026-04-06T00:00:00.000Z',
+            },
+          ],
+        },
+      ),
     ).toEqual({
       ok: false,
       message:
-        'Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.',
-      errorCode: 'HEADLESS_PROVIDER_UNSUPPORTED_MODE',
+        'Codex provider could not find persisted assistant turn missing_msg for --resume-session-at.',
+      errorCode: 'HEADLESS_PROVIDER_INVALID_INPUT',
     })
   })
 })

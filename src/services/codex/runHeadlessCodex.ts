@@ -4,7 +4,6 @@ import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import type {
   HeadlessConversationState,
   HeadlessProvider,
-  HeadlessProviderErrorCode,
   HeadlessProviderOptions,
 } from 'src/services/headless/provider.js'
 import {
@@ -12,10 +11,12 @@ import {
   providerSupportsStructuredOutput,
 } from 'src/services/headless/capabilities.js'
 import {
+  buildHeadlessProviderErrorResult,
   getHeadlessProviderExecutionErrorCode,
   getHeadlessProviderInvalidInputCode,
   getHeadlessProviderUnsupportedCapabilityCode,
   getHeadlessProviderUnsupportedModeCode,
+  writeHeadlessProviderError,
 } from 'src/services/headless/errors.js'
 import { getSessionId } from 'src/bootstrap/state.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
@@ -105,10 +106,12 @@ function buildSuccessResult({
   result,
   durationMs,
   usage,
+  assistantMessageUuid,
 }: {
   result: string
   durationMs: number
   usage: NonNullableUsage
+  assistantMessageUuid: string
 }): StdoutMessage {
   return {
     type: 'result',
@@ -124,33 +127,7 @@ function buildSuccessResult({
     modelUsage: {},
     permission_denials: [],
     structured_output: undefined,
-    uuid: randomUUID(),
-    session_id: getSessionId(),
-  }
-}
-
-function buildErrorResult({
-  error,
-  durationMs,
-}: {
-  error: string
-  durationMs: number
-}): StdoutMessage {
-  return {
-    type: 'result',
-    subtype: 'error_during_execution',
-    duration_ms: durationMs,
-    duration_api_ms: durationMs,
-    is_error: true,
-    num_turns: 1,
-    stop_reason: null,
-    total_cost_usd: 0,
-    usage: EMPTY_USAGE,
-    modelUsage: {},
-    permission_denials: [],
-    errors: [error],
-    validation_error: undefined,
-    uuid: randomUUID(),
+    uuid: assistantMessageUuid,
     session_id: getSessionId(),
   }
 }
@@ -172,30 +149,6 @@ function buildStructuredOutputEvent({
   }
 }
 
-async function writeCodexError(
-  structuredIO: StructuredIO,
-  outputFormat: string | undefined,
-  message: string,
-  errorCode: HeadlessProviderErrorCode,
-): Promise<void> {
-  const result = buildErrorResult({
-    error: message,
-    durationMs: 0,
-  })
-  result.error_code = errorCode
-
-  if (outputFormat === 'json' || outputFormat === 'stream-json') {
-    if (outputFormat === 'json') {
-      writeToStdout(jsonStringify(result) + '\n')
-    } else {
-      await structuredIO.write(result)
-    }
-    return
-  }
-
-  process.stderr.write(`Error: ${message}\n`)
-}
-
 export async function runHeadlessCodex({
   inputPrompt,
   structuredIO,
@@ -214,7 +167,7 @@ export async function runHeadlessCodex({
     conversationState,
   )
   if (!continuationCheck.ok) {
-    await writeCodexError(
+    await writeHeadlessProviderError(
       structuredIO,
       options.outputFormat,
       continuationCheck.message,
@@ -225,7 +178,7 @@ export async function runHeadlessCodex({
 
   const unsupportedModeMessage = buildUnsupportedModeMessage(options)
   if (unsupportedModeMessage) {
-    await writeCodexError(
+    await writeHeadlessProviderError(
       structuredIO,
       options.outputFormat,
       unsupportedModeMessage,
@@ -236,7 +189,7 @@ export async function runHeadlessCodex({
 
   const prompt = await resolvePrompt(inputPrompt)
   if (!prompt.trim()) {
-    await writeCodexError(
+    await writeHeadlessProviderError(
       structuredIO,
       options.outputFormat,
       'Input must be provided either through stdin or as a prompt argument when using --print',
@@ -258,7 +211,7 @@ export async function runHeadlessCodex({
           }),
         )
       }
-      await writeCodexError(
+      await writeHeadlessProviderError(
         structuredIO,
         options.outputFormat,
         message,
@@ -281,7 +234,7 @@ export async function runHeadlessCodex({
           }),
         )
       }
-      await writeCodexError(
+      await writeHeadlessProviderError(
         structuredIO,
         options.outputFormat,
         message,
@@ -303,8 +256,20 @@ export async function runHeadlessCodex({
 
   let accumulatedText = ''
   let usage: NonNullableUsage = EMPTY_USAGE
+  const currentSessionId = getSessionId()
+  let responseIdForConversationState: string | undefined
   let nextConversationState: HeadlessConversationState | null =
-    continuationCheck.conversationState ?? null
+    continuationCheck.conversationState
+      ? {
+          ...continuationCheck.conversationState,
+          history: continuationCheck.conversationState.history ?? [],
+        }
+      : {
+          providerId: provider.metadata.id,
+          stateId: currentSessionId,
+          conversationId: currentSessionId,
+          history: [],
+        }
 
   try {
     const response = await createCodexResponseStream({
@@ -349,7 +314,9 @@ export async function runHeadlessCodex({
         }
         usage = extractUsage(completedResponse)
         if (responseId) {
+          responseIdForConversationState = responseId
           nextConversationState = {
+            ...(nextConversationState ?? {}),
             providerId: provider.metadata.id,
             lastResponseId: responseId,
           }
@@ -373,12 +340,11 @@ export async function runHeadlessCodex({
           )
         }
 
-        const result = buildErrorResult({
+        const result = buildHeadlessProviderErrorResult({
           error: validation.error,
           durationMs: Date.now() - start,
+          errorCode: getHeadlessProviderUnsupportedCapabilityCode(),
         })
-
-        result.error_code = getHeadlessProviderUnsupportedCapabilityCode()
         result.validation_error = validation.error
 
         switch (options.outputFormat) {
@@ -406,10 +372,31 @@ export async function runHeadlessCodex({
       }
     }
 
+    const assistantMessageUuid = randomUUID()
+    if (responseIdForConversationState) {
+      nextConversationState = {
+        ...(nextConversationState ?? {}),
+        providerId: provider.metadata.id,
+        stateId: nextConversationState?.stateId ?? currentSessionId,
+        conversationId: nextConversationState?.conversationId ?? currentSessionId,
+        lastResponseId: responseIdForConversationState,
+        lastAssistantMessageUuid: assistantMessageUuid,
+        history: [
+          ...(nextConversationState?.history ?? []),
+          {
+            assistantMessageUuid,
+            responseId: responseIdForConversationState,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }
+    }
+
     const result = buildSuccessResult({
       result: accumulatedText,
       durationMs: Date.now() - start,
       usage,
+      assistantMessageUuid,
     })
     result.structured_output = structuredOutput
 
@@ -440,11 +427,11 @@ export async function runHeadlessCodex({
     const message = isAbortError(error)
       ? 'Request interrupted by user'
       : errorMessage(error)
-    const result = buildErrorResult({
+    const result = buildHeadlessProviderErrorResult({
       error: message,
       durationMs: Date.now() - start,
+      errorCode: getHeadlessProviderExecutionErrorCode(),
     })
-    result.error_code = getHeadlessProviderExecutionErrorCode()
     result.validation_error = message
 
     switch (options.outputFormat) {
@@ -475,7 +462,7 @@ export function createCodexHeadlessProvider(): HeadlessProvider {
     },
     capabilities: {
       supportsContinue: true,
-      supportsResume: false,
+      supportsResume: true,
       supportsStructuredOutput: true,
       supportsConversationState: true,
     },

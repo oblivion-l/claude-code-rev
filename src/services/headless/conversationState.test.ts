@@ -1,5 +1,12 @@
+import { createHash } from 'crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -126,5 +133,43 @@ describe('headless conversation state storage', () => {
     ).toThrow(
       'Persisted codex conversation state version 999 is not supported by this CLI build.',
     )
+  })
+
+  it('cleans up a stale latest pointer that references a missing state file', () => {
+    setHeadlessConversationState(
+      'codex',
+      {
+        providerId: 'codex',
+        stateId: 'state_missing_target',
+        lastResponseId: 'resp_missing_target',
+      },
+      {
+        cwd: '/tmp/project-e',
+      },
+    )
+
+    rmSync(join(stateDir, 'codex', 'states', 'state_missing_target.json'), {
+      force: true,
+    })
+    clearHeadlessConversationState('codex')
+
+    expect(() =>
+      getHeadlessConversationState('codex', {
+        cwd: '/tmp/project-e',
+      }),
+    ).toThrow(
+      'Persisted codex latest-conversation pointer for /tmp/project-e referenced missing state state_missing_target. The stale pointer was cleaned up.',
+    )
+
+    expect(
+      existsSync(
+        join(
+          stateDir,
+          'codex',
+          'latest',
+          `${createHash('sha256').update('/tmp/project-e').digest('hex')}.json`,
+        ),
+      ),
+    ).toBe(false)
   })
 })

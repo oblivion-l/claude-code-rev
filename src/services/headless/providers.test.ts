@@ -25,7 +25,7 @@ describe('createCodexHeadlessProvider', () => {
     })
     expect(provider.capabilities).toEqual({
       supportsContinue: true,
-      supportsResume: false,
+      supportsResume: true,
       supportsStructuredOutput: true,
       supportsConversationState: true,
     })

@@ -3,8 +3,16 @@ import type { StructuredIO } from 'src/cli/structuredIO.js'
 import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import type {
   HeadlessProvider,
+  HeadlessProviderErrorCode,
   HeadlessProviderOptions,
 } from 'src/services/headless/provider.js'
+import { providerSupportsStructuredOutput } from 'src/services/headless/capabilities.js'
+import {
+  getHeadlessProviderExecutionErrorCode,
+  getHeadlessProviderInvalidInputCode,
+  getHeadlessProviderUnsupportedCapabilityCode,
+  getHeadlessProviderUnsupportedModeCode,
+} from 'src/services/headless/errors.js'
 import { getSessionId } from 'src/bootstrap/state.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
 import type { NonNullableUsage } from 'src/entrypoints/sdk/sdkUtilityTypes.js'
@@ -167,11 +175,13 @@ async function writeCodexError(
   structuredIO: StructuredIO,
   outputFormat: string | undefined,
   message: string,
+  errorCode: HeadlessProviderErrorCode,
 ): Promise<void> {
   const result = buildErrorResult({
     error: message,
     durationMs: 0,
   })
+  result.error_code = errorCode
 
   if (outputFormat === 'json' || outputFormat === 'stream-json') {
     if (outputFormat === 'json') {
@@ -200,6 +210,7 @@ export async function runHeadlessCodex({
       structuredIO,
       options.outputFormat,
       unsupportedModeMessage,
+      getHeadlessProviderUnsupportedModeCode(),
     )
     return { exitCode: 1 }
   }
@@ -210,13 +221,34 @@ export async function runHeadlessCodex({
       structuredIO,
       options.outputFormat,
       'Input must be provided either through stdin or as a prompt argument when using --print',
+      getHeadlessProviderInvalidInputCode(),
     )
     return { exitCode: 1 }
   }
 
+  const provider = createCodexHeadlessProvider()
   const config = getCodexRuntimeConfig(options.userSpecifiedModel)
   let compiledSchema: CompiledCodexJsonSchema | undefined
   if (options.jsonSchema) {
+    if (!providerSupportsStructuredOutput(provider)) {
+      const message =
+        'Codex provider currently does not support structured output in this mode.'
+      if (options.outputFormat === 'stream-json') {
+        await structuredIO.write(
+          buildStructuredOutputEvent({
+            validationError: message,
+          }),
+        )
+      }
+      await writeCodexError(
+        structuredIO,
+        options.outputFormat,
+        message,
+        getHeadlessProviderUnsupportedCapabilityCode(),
+      )
+      return { exitCode: 1 }
+    }
+
     try {
       compiledSchema = compileCodexJsonSchema({
         jsonSchema: options.jsonSchema,
@@ -231,7 +263,12 @@ export async function runHeadlessCodex({
           }),
         )
       }
-      await writeCodexError(structuredIO, options.outputFormat, message)
+      await writeCodexError(
+        structuredIO,
+        options.outputFormat,
+        message,
+        getHeadlessProviderUnsupportedCapabilityCode(),
+      )
       return { exitCode: 1 }
     }
   }
@@ -313,6 +350,7 @@ export async function runHeadlessCodex({
           durationMs: Date.now() - start,
         })
 
+        result.error_code = getHeadlessProviderUnsupportedCapabilityCode()
         result.validation_error = validation.error
 
         switch (options.outputFormat) {
@@ -375,6 +413,7 @@ export async function runHeadlessCodex({
       error: message,
       durationMs: Date.now() - start,
     })
+    result.error_code = getHeadlessProviderExecutionErrorCode()
     result.validation_error = message
 
     switch (options.outputFormat) {
@@ -396,7 +435,10 @@ export async function runHeadlessCodex({
 
 export function createCodexHeadlessProvider(): HeadlessProvider {
   return {
-    id: 'codex',
+    metadata: {
+      id: 'codex',
+      displayName: 'Codex',
+    },
     capabilities: {
       supportsResume: false,
       supportsStructuredOutput: true,

@@ -1,5 +1,13 @@
 import type { StructuredIO } from 'src/cli/structuredIO.js'
 
+export const HEADLESS_PROVIDER_ERROR_PREFIX = 'HEADLESS_PROVIDER'
+
+export type HeadlessProviderErrorCode =
+  | `${typeof HEADLESS_PROVIDER_ERROR_PREFIX}_UNSUPPORTED_MODE`
+  | `${typeof HEADLESS_PROVIDER_ERROR_PREFIX}_UNSUPPORTED_CAPABILITY`
+  | `${typeof HEADLESS_PROVIDER_ERROR_PREFIX}_INVALID_INPUT`
+  | `${typeof HEADLESS_PROVIDER_ERROR_PREFIX}_EXECUTION_ERROR`
+
 export type HeadlessProviderOptions = {
   continue: boolean | undefined
   resume: string | boolean | undefined
@@ -33,8 +41,13 @@ export type HeadlessProviderCapabilities = {
   supportsStructuredOutput: boolean
 }
 
-export type HeadlessProvider = {
+export type HeadlessProviderMetadata = {
   id: string
+  displayName: string
+}
+
+export type HeadlessProvider = {
+  metadata: HeadlessProviderMetadata
   capabilities: HeadlessProviderCapabilities
   run(args: HeadlessProviderRunArgs): Promise<HeadlessProviderRunResult>
 }

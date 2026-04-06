@@ -1,48 +1,46 @@
-# Codex Provider
+# Codex Provider 使用说明
 
-This repository now includes a minimal Codex provider path for headless CLI
-usage.
+当前仓库已经加入一个最小可用的 Codex provider 路径，用于 headless CLI 场景。
 
-The integration is intentionally narrow in scope:
+这条接入路径的范围刻意保持很窄：
 
-- it does not replace the existing Claude/Anthropic provider stack
-- it does not change the existing command tree or CLI bootstrap
-- it only activates when an explicit environment flag is enabled
-- it only supports headless `--print` requests in this phase, with same-process `--continue` as a minimal extension
+- 不替换现有 Claude/Anthropic provider 栈
+- 不改动现有命令树和 CLI bootstrap
+- 只有显式打开环境变量开关时才会启用
+- 当前阶段只支持 headless `--print` 请求，并额外提供同进程最小 `--continue`
 
-## What It Supports
+## 当前已支持
 
-- `claude -p "question"` style one-shot prompts
-- streaming text output to stdout
-- `--output-format stream-json --verbose` streaming events plus a final result
-- `--output-format json` final result output
-- `--system-prompt` and `--append-system-prompt`
-- `--json-schema` strict structured output validation for single-turn headless requests
-- same-process `--continue` when an in-memory Codex conversation state already exists
+- `claude -p "question"` 这一类单次问答
+- 文本流式输出到 stdout
+- `--output-format stream-json --verbose` 的事件流加最终结果
+- `--output-format json` 的最终结果输出
+- `--system-prompt` 和 `--append-system-prompt`
+- `--json-schema` 的严格结构化输出校验
+- 当内存中已经存在 Codex 会话状态时，支持同进程 `--continue`
 
-## What It Does Not Support Yet
+## 当前暂不支持
 
-- interactive REPL mode
-- `--resume`, `--resume-session-at`, rewind, or fork session flows
-- cross-process conversation recovery for `--continue`
+- 交互式 REPL 模式
+- `--resume`、`--resume-session-at`、rewind、fork session
+- `--continue` 的跨进程恢复
 - `--input-format stream-json`
-- tool calling through the existing tool orchestration pipeline
-- MCP / agent workflows
-- interactive tool use or agent orchestration inside a structured-output turn
+- 接入现有工具编排链路的 tool calling
+- MCP / agent 工作流
+- 在 structured output 回合里进行交互式工具使用或 agent orchestration
 
-Unsupported combinations fail fast with a direct error message instead of
-silently falling back to another path.
+不支持的组合会直接 fail-fast，返回明确错误，而不是静默回退到其他路径。
 
-## Enable It
+## 如何启用
 
-Set the following environment variables before running the CLI:
+运行 CLI 前先设置以下环境变量：
 
 ```bash
 export CLAUDE_CODE_USE_CODEX=1
 export OPENAI_API_KEY=your_api_key
 ```
 
-Optional variables:
+可选环境变量：
 
 ```bash
 export CODEX_MODEL=gpt-5-codex
@@ -51,29 +49,29 @@ export OPENAI_ORG_ID=org_123
 export OPENAI_PROJECT_ID=proj_123
 ```
 
-`CODEX_MODEL` falls back to `OPENAI_MODEL`, then to `gpt-5-codex`.
+`CODEX_MODEL` 会优先使用自身；如果未设置，则回退到 `OPENAI_MODEL`，再回退到 `gpt-5-codex`。
 
-## Usage Examples
+## 使用示例
 
-Plain text streaming:
+普通文本流式输出：
 
 ```bash
 bun run dev -p "Explain the repository structure"
 ```
 
-Stream JSON events:
+`stream-json` 事件流：
 
 ```bash
 bun run dev -p --output-format stream-json --verbose "Summarize src/cli/print.ts"
 ```
 
-JSON final result:
+`json` 最终结果：
 
 ```bash
 bun run dev -p --output-format json "List the top risks in this codebase"
 ```
 
-Structured output with `--json-schema`:
+搭配 `--json-schema` 的结构化输出：
 
 ```bash
 bun run dev -p \
@@ -81,7 +79,7 @@ bun run dev -p \
   "Summarize this repository as JSON"
 ```
 
-Structured output with stream-json:
+搭配 `stream-json` 的结构化输出：
 
 ```bash
 bun run dev -p \
@@ -91,92 +89,86 @@ bun run dev -p \
   "Return the main source files as JSON"
 ```
 
-## Acceptance Checks
+## 验收说明
 
-For the release acceptance checklist and command-by-command expectations, see
-[codex-acceptance.md](./codex-acceptance.md).
+完整的发布验收清单和逐条命令预期见 [codex-acceptance.md](./codex-acceptance.md)。
 
-When `--json-schema` is enabled:
+当启用 `--json-schema` 时：
 
-- the CLI sends the schema to the Codex Responses API using strict structured output mode
-- the final response is parsed as JSON locally
-- the parsed JSON is validated against the provided schema
-- validation failures return a non-zero exit code
-- in `stream-json` mode, a final `system` event with subtype `codex_json_schema` is emitted and contains either `parsed_result` or `validation_error`
+- CLI 会把 schema 以 strict structured output 模式发送给 Codex Responses API
+- 最终响应会在本地解析为 JSON
+- 解析后的 JSON 会按照提供的 schema 做校验
+- 校验失败时返回非零退出码
+- 在 `stream-json` 模式下，最终会输出一个 `system` 事件，`subtype` 为 `codex_json_schema`，并携带 `parsed_result` 或 `validation_error`
 
-When `--continue` is enabled:
+当启用 `--continue` 时：
 
-- Codex only supports continue within the same process
-- the provider requires an in-memory prior response id from an earlier Codex headless request
-- starting a fresh CLI process does not restore this state
-- `--resume` and `--resume-session-at` still fail fast
+- Codex 只支持同进程内继续
+- provider 依赖前一次 Codex headless 请求留下的内存态 response id
+- 新开一个 CLI 进程不会自动恢复这份状态
+- `--resume` 和 `--resume-session-at` 仍然会 fail-fast
 
-## Common Errors
+## 常见错误
 
 `Invalid JSON Schema for --json-schema`
 
-- The schema could not be compiled locally.
-- Check for malformed JSON Schema fields such as invalid `properties`, invalid `type`, or broken nested schema objects.
+- 说明本地无法编译该 schema。
+- 先检查 `properties`、`type`、嵌套 schema 结构等字段是否写错。
 
 `Model ... is not enabled for Codex --json-schema mode in this CLI build`
 
-- The selected model is outside the current allowlist for this MVP.
-- Use `CODEX_MODEL=gpt-5-codex` unless you have explicitly verified another supported Codex/GPT-5 model.
+- 说明当前模型不在这版 CLI 的 structured output allowlist 里。
+- 如果没有特别验证过其他模型，优先使用 `CODEX_MODEL=gpt-5-codex`。
 
 `Codex model ... is not supported for this request`
 
-- The request reached the API, but the API explicitly rejected the model.
-- This is more specific than the local allowlist error: it means the backend
-  itself rejected the selected model or model capability.
+- 说明请求已经到达 API，但 API 明确拒绝了该模型。
+- 这个错误比本地 allowlist 更具体，表示后端明确不接受当前模型或能力组合。
 
 `Codex structured outputs are not supported for model ... or this API parameter set`
 
-- The request reached the API, but the API explicitly rejected `text.format`
-  or a closely related structured-output parameter.
-- This usually means the model/backend combination does not support structured
-  outputs on the Responses API path you are using.
+- 说明请求已经到达 API，但 API 明确拒绝了 `text.format` 或相关 structured-output 参数。
+- 通常表示当前模型、后端或参数组合不支持 Responses API 上的 structured output。
 
 `Codex structured output is not valid JSON`
 
-- The model returned text that could not be parsed as JSON.
-- Tighten the prompt and keep the response target narrow.
+- 说明模型返回的文本无法解析成 JSON。
+- 建议把提示词收紧，减少非结构化输出空间。
 
 `Codex structured output does not match the provided schema`
 
-- The model returned JSON, but the object failed local schema validation.
-- Check required fields, field types, and `additionalProperties`.
+- 说明模型虽然返回了 JSON，但没有通过本地 schema 校验。
+- 重点检查必填字段、字段类型和 `additionalProperties`。
 
 `Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.`
 
-- `--continue` was used without an in-memory Codex response chain.
-- This is expected after starting a new process or before any earlier Codex headless request has completed.
+- 说明使用了 `--continue`，但当前没有可用的内存态 Codex 响应链。
+- 这通常出现在新进程里直接执行，或者此前没有完成任何 Codex headless 请求。
 
 `Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.`
 
-- `--resume` and `--resume-session-at` remain unsupported on the Codex headless path.
-- Use a fresh request, or only use `--continue` when staying inside the same process.
+- 说明 Codex headless 路径仍然不支持 `--resume` 和 `--resume-session-at`。
+- 当前只能发起 fresh request，或者在同一进程内使用 `--continue`。
 
-API-side schema rejection or unsupported keyword errors
+API 侧 schema 拒绝或不支持关键字
 
-- This means the schema compiled locally but was rejected by the OpenAI API's structured output subset.
-- Remove unsupported keywords or simplify the schema shape.
+- 说明 schema 虽然能在本地编译，但被 OpenAI API 的 structured output 子集拒绝了。
+- 优先删除不受支持的关键字，或简化 schema 结构。
 
-## Rollback
+## 回滚方式
 
-To return to the previous behavior, unset the feature flag:
+如果想回到之前的默认行为，直接关闭特性开关：
 
 ```bash
 unset CLAUDE_CODE_USE_CODEX
 ```
 
-Once the flag is unset, `--print` returns to the existing Claude provider path.
+关闭后，`--print` 会重新走现有 Claude provider 路径。
 
-## Implementation Notes
+## 实现位置
 
-The Codex path is routed in the headless CLI entry at
-`src/cli/print.ts`.
+Codex 路径的接入口位于 `src/cli/print.ts`。
 
-The provider-specific implementation lives under `src/services/codex`.
+provider 具体实现位于 `src/services/codex`。
 
-This keeps the change isolated and makes later expansion possible without
-rewriting the existing query loop in one step.
+这样可以把改动限制在隔离区域内，后续继续扩展时不需要一次性重写整条查询链路。

@@ -1,31 +1,31 @@
-# Tool Use Concepts
+# Tool Use 概念
 
-Use this note for tool calling, function execution, and agent loops built on Claude.
+当用户问到基于 Claude 的 tool calling、函数执行或 agent loop 时，参考这份说明。
 
-## Core Model
+## 核心模型
 
-- You declare tools in the request.
-- Claude decides whether to call a tool based on the prompt and tool choice configuration.
-- Your application executes the tool and sends the result back in a follow-up message.
-- Claude then continues reasoning with the tool result in context.
+- 你在请求中声明可用工具。
+- Claude 根据提示词和 tool choice 配置决定是否调用工具。
+- 你的应用执行工具，再把结果通过后续消息发回模型。
+- Claude 在带着工具结果上下文的情况下继续推理。
 
-## Design Guidance
+## 设计建议
 
-- Keep tool names clear and stable.
-- Write descriptions for the model, not for human readers only.
-- Use narrow input schemas with concrete field names and required fields.
-- Return structured, minimal tool results when possible.
+- 工具名要清晰、稳定。
+- description 要写给模型看，不只是写给人类读者。
+- 输入 schema 要尽量收窄，字段名具体，并明确 required 字段。
+- 能返回结构化、精简的 tool result 时，就不要返回冗长文本。
 
-## Common Failure Modes
+## 常见失败模式
 
-- Over-broad tools that make selection ambiguous
-- Schemas that allow too many invalid states
-- Tool results that are too verbose or omit critical fields
-- Forgetting to loop until Claude stops requesting tools
+- 工具能力过宽，导致模型难以选择
+- Schema 允许太多非法状态
+- Tool result 过长，或遗漏关键字段
+- 忘记循环处理，直到 Claude 停止请求工具
 
-## Practical Agent Advice
+## 实践建议
 
-- Treat tool use as a protocol, not a one-shot helper call.
-- Add application-level limits for tool recursion, retries, and external side effects.
-- Separate client-side tools from server-side Anthropic tools when explaining implementation responsibilities.
-- If the user asks for exact server tool types or current pricing, verify against the live tool-use docs.
+- 把 tool use 当作一套协议，而不是一次性 helper 调用。
+- 在应用层给工具递归、重试和外部副作用加限制。
+- 解释实现责任时，要分清客户端工具和 Anthropic 服务端工具。
+- 如果用户问的是精确的服务端工具类型或当前价格，先去核对实时 tool-use 文档。

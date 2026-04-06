@@ -1,8 +1,8 @@
-# TypeScript Agent SDK Patterns
+# TypeScript Agent SDK 模式
 
-## Narrow tool access
+## 收窄工具权限
 
-Start with the smallest tool surface that can finish the task.
+先从“足以完成任务的最小工具面”开始。
 
 ```ts
 const agent = new Agent({
@@ -12,40 +12,40 @@ const agent = new Agent({
 })
 ```
 
-Use write-capable tools only when the task truly requires edits.
+只有任务确实需要修改时，才启用具备写能力的工具。
 
-## Separate planning from execution
+## 把规划和执行分开
 
-For longer workflows, run an analysis pass first, then a second pass that can edit or execute.
+对于较长工作流，先跑一轮分析，再跑第二轮允许编辑或执行的流程。
 
 ```ts
 const review = await reviewAgent.run('Find the highest-risk regression.')
 const fix = await fixAgent.run(`Implement this change:\n\n${review.outputText}`)
 ```
 
-This reduces accidental edits and makes logs easier to audit.
+这样可以减少误改，也更方便审计日志。
 
-## Constrain the workspace
+## 限定工作区范围
 
-- Pass explicit directories or file lists when the task is repo-scoped.
-- Prefer short user prompts with exact success criteria.
-- If the task is high risk, force structured output such as JSON or a checklist.
+- 当任务限定在某个仓库范围内时，显式传入目录或文件列表。
+- 优先使用简短且成功标准明确的用户提示词。
+- 如果任务风险高，就强制使用 JSON、checklist 之类的结构化输出。
 
-## Use agents for orchestration, not hidden business logic
+## 把 agent 用于编排，而不是隐藏业务逻辑
 
-- Keep validation, persistence, and authorization in application code.
-- Let the agent decide how to solve a task within boundaries you define.
-- Re-check outputs before applying them to production systems.
+- 校验、持久化和授权逻辑要放在应用代码里。
+- 在你定义好的边界内，让 agent 决定如何完成任务。
+- 在把结果应用到生产系统前，再做一次复核。
 
-## Good use cases
+## 适用场景
 
-- Repository review bots
-- Migration assistants
-- Incident triage helpers
-- Controlled code editing workflows
+- 仓库审查机器人
+- 迁移助手
+- 事故分诊助手
+- 可控的代码编辑工作流
 
-## Avoid
+## 不建议这样做
 
-- Giving one agent unrestricted shell, network, and file access by default
-- Relying on implicit context instead of attaching the exact files or instructions
-- Treating agent text as trusted structured data without validation
+- 默认就给单个 agent 完全开放 shell、网络和文件权限
+- 依赖隐式上下文，而不是明确附上文件和指令
+- 不做校验就把 agent 文本当作可信的结构化数据

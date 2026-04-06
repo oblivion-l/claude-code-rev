@@ -1,8 +1,8 @@
 # Java Claude API
 
-For Java, a simple `HttpClient` integration is enough to get started.
+在 Java 中，直接用一个简单的 `HttpClient` 集成就可以起步。
 
-## Minimal Example
+## 最小示例
 
 ```java
 import java.net.URI;
@@ -40,8 +40,8 @@ public class Main {
 }
 ```
 
-## Notes
+## 说明
 
-- Parse the response with Jackson or your preferred JSON library once you know which fields you need.
-- Prefer a shared `HttpClient` and explicit timeouts.
-- For server apps, log request IDs and status codes so you can diagnose throttling and malformed requests quickly.
+- 当你明确需要哪些字段后，用 Jackson 或你偏好的 JSON 库解析响应。
+- 优先复用共享的 `HttpClient`，并显式设置超时。
+- 服务端应用里要记录 request ID 和状态码，便于快速排查限流和非法请求。

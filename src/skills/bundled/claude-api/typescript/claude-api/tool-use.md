@@ -1,8 +1,8 @@
 # TypeScript Tool Use
 
-Tool use lets Claude request structured actions from your application. Your code defines the tools, executes them, then sends tool results back into the conversation.
+Tool use 允许 Claude 向你的应用请求结构化动作。你的代码负责定义工具、执行工具，再把工具结果发回对话。
 
-## Define a tool
+## 定义工具
 
 ```ts
 const tools = [
@@ -20,7 +20,7 @@ const tools = [
 ]
 ```
 
-## Request with tools
+## 搭配工具发起请求
 
 ```ts
 const message = await client.messages.create({
@@ -31,22 +31,22 @@ const message = await client.messages.create({
 })
 ```
 
-If Claude returns a tool-use block, execute the named tool in your application, then append a `tool_result` turn and call the API again.
+如果 Claude 返回 tool-use 块，就在应用里执行对应工具，然后追加一个 `tool_result` 轮次，再次调用 API。
 
-## Practical guidance
+## 实践建议
 
-- Keep tool schemas narrow and explicit.
-- Validate tool input before execution.
-- Return structured, minimal results instead of raw logs when possible.
-- Put authorization and side-effect checks in your code, not in the model prompt.
+- tool schema 要尽量收窄并且明确。
+- 工具执行前先验证输入。
+- 能返回结构化、精简结果时，就不要直接回原始日志。
+- 权限控制和副作用检查要放在你的代码里，而不是只写进模型 prompt。
 
-## Avoid
+## 不建议这样做
 
-- exposing shell or network primitives unless absolutely necessary
-- giving tools vague names or overly broad schemas
-- skipping retries and timeout handling around real integrations
+- 除非绝对必要，否则不要直接暴露 shell 或网络原语
+- 给工具起模糊名字，或使用过宽的 schema
+- 对真实集成省略重试和超时处理
 
-## References
+## 参考资料
 
-- Anthropic docs: tool use
-- Anthropic docs: Messages API
+- Anthropic 文档：tool use
+- Anthropic 文档：Messages API

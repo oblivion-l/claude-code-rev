@@ -1,21 +1,21 @@
 # Python Agent SDK
 
-Use the Python Agent SDK when you want Claude Code's agent loop, tools, hooks, and session handling from Python instead of calling the Messages API directly.
+如果你希望在 Python 里复用 Claude Code 的 agent loop、tools、hooks 和 session 管理，而不是直接调用 Messages API，就使用 Python Agent SDK。
 
-## Install
+## 安装
 
 ```bash
 pip install claude-agent-sdk
 ```
 
-The SDK talks to a local Claude Code CLI, so the machine running your Python code also needs Claude Code installed and authenticated.
+这个 SDK 会和本地 Claude Code CLI 通信，因此运行 Python 代码的机器也需要安装并完成 Claude Code 认证。
 
-## Choose the right entrypoint
+## 如何选择入口
 
-- `query(...)`: one-off tasks. Each call starts a fresh session.
-- `ClaudeSDKClient(...)`: multi-turn or long-lived conversations. Reuses session state and supports interrupts.
+- `query(...)`：适合一次性任务。每次调用都会启动一个新 session。
+- `ClaudeSDKClient(...)`：适合多轮或长生命周期会话。会复用 session 状态，并支持中断。
 
-## Minimal `query()` example
+## 最小 `query()` 示例
 
 ```python
 import asyncio
@@ -36,7 +36,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Minimal client example
+## 最小 client 示例
 
 ```python
 import asyncio
@@ -58,15 +58,15 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Practical notes
+## 实践说明
 
-- Prefer `query()` for scripts, cron jobs, and single task execution.
-- Prefer `ClaudeSDKClient` when later prompts depend on earlier tool results.
-- Pass `cwd`, permission settings, allowed tools, hooks, and custom tools through `ClaudeAgentOptions`.
-- For incremental output, enable partial message streaming and handle `StreamEvent` messages.
-- For raw model calls without Claude Code tools, use the Anthropic Python SDK instead of the Agent SDK.
+- 脚本、定时任务和单次任务执行，优先用 `query()`。
+- 后续提示词依赖前面工具结果时，优先用 `ClaudeSDKClient`。
+- 通过 `ClaudeAgentOptions` 传入 `cwd`、权限设置、allowed tools、hooks 和自定义工具。
+- 如果需要增量输出，启用 partial message streaming，并处理 `StreamEvent` 消息。
+- 如果只需要原始模型调用而不需要 Claude Code 工具，改用 Anthropic Python SDK。
 
-## Official references
+## 官方参考
 
-- Agent SDK quickstart: `https://platform.claude.com/docs/en/agent-sdk/quickstart`
-- Agent SDK Python reference: `https://platform.claude.com/docs/en/agent-sdk/python`
+- Agent SDK 快速开始：`https://platform.claude.com/docs/en/agent-sdk/quickstart`
+- Agent SDK Python 参考：`https://platform.claude.com/docs/en/agent-sdk/python`

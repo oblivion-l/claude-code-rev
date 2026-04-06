@@ -1,8 +1,8 @@
-# cURL Examples
+# cURL 示例
 
-Use these when you want a raw HTTP baseline before moving to an SDK.
+当你还没切到 SDK、想先验证最原始的 HTTP 请求时，用这些示例。
 
-## Basic Message
+## 基础消息请求
 
 ```bash
 curl https://api.anthropic.com/v1/messages \
@@ -18,7 +18,7 @@ curl https://api.anthropic.com/v1/messages \
   }'
 ```
 
-## With System Prompt
+## 搭配 System Prompt
 
 ```bash
 curl https://api.anthropic.com/v1/messages \
@@ -35,7 +35,7 @@ curl https://api.anthropic.com/v1/messages \
   }'
 ```
 
-## JSON Output Pattern
+## JSON 输出模式
 
 ```bash
 curl https://api.anthropic.com/v1/messages \
@@ -54,8 +54,8 @@ curl https://api.anthropic.com/v1/messages \
   }'
 ```
 
-## Notes
+## 说明
 
-- Start with cURL when debugging headers, auth, or payload shape.
-- Move to a language client once the request body is stable.
-- For streaming, batches, and files, use the corresponding skill docs instead of extending these one-off shell commands.
+- 调试请求头、认证或 payload 结构时，优先先用 cURL。
+- 当请求体稳定后，再切换到语言 SDK。
+- 如果要做 streaming、batches 或 files，优先看对应 skill 文档，而不是继续把这些一次性 shell 命令堆大。

@@ -1,15 +1,15 @@
 # Python Batches
 
-Use Message Batches when you have many independent requests and do not need interactive latency.
+当你有大量彼此独立的请求，并且不需要交互式低延迟时，使用 Message Batches。
 
-## Good fit
+## 适用场景
 
-- nightly evaluations
-- backfills and migrations
-- large classification or summarization jobs
-- bulk tasks where polling is easier than holding open many live connections
+- 夜间批量评估
+- 数据回填和迁移
+- 大规模分类或摘要任务
+- 那些“轮询结果比维持大量长连接更简单”的批量任务
 
-## Create a batch
+## 创建 batch
 
 ```python
 from anthropic import Anthropic
@@ -42,7 +42,7 @@ batch = client.beta.messages.batches.create(
 )
 ```
 
-## Poll for completion
+## 轮询完成状态
 
 ```python
 batch = client.beta.messages.batches.retrieve(batch.id)
@@ -50,18 +50,18 @@ print(batch.processing_status)
 print(batch.request_counts)
 ```
 
-## Read results
+## 读取结果
 
-Results are not guaranteed to come back in request order. Match on `custom_id`, not array position. Once processing finishes, fetch or iterate the batch results and join them back to your application records by `custom_id`.
+结果不保证按请求顺序返回。要按 `custom_id` 对齐，而不是按数组位置。处理完成后，拉取或遍历 batch 结果，并按 `custom_id` 回填到你的应用记录里。
 
-## Practical guidance
+## 实践建议
 
-- Use batches only for independent requests.
-- Store your own mapping from `custom_id` to source record.
-- Expect partial failures; some requests may succeed while others error or expire.
-- If you need immediate user feedback, use normal Messages API calls instead.
+- batches 只适合彼此独立的请求。
+- 你自己要维护 `custom_id` 到源记录的映射关系。
+- 要接受部分失败的现实：有些请求可能成功，另一些可能报错或过期。
+- 如果用户需要即时反馈，改用普通的 Messages API。
 
-## Official references
+## 官方参考
 
-- Batch guide/reference: `https://platform.claude.com/docs/en/api/messages/batches`
-- Python batch endpoints: `https://platform.claude.com/docs/en/api/python/beta/messages/batches/list`
+- Batch 指南/参考：`https://platform.claude.com/docs/en/api/messages/batches`
+- Python batch 端点：`https://platform.claude.com/docs/en/api/python/beta/messages/batches/list`

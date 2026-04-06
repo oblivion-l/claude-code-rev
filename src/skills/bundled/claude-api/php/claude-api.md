@@ -1,8 +1,8 @@
 # PHP Claude API
 
-For PHP, start with a direct HTTPS request and wrap it later in your application service layer.
+在 PHP 中，可以先从直接发 HTTPS 请求开始，后续再封装进应用自己的 service layer。
 
-## Minimal Example
+## 最小示例
 
 ```php
 <?php
@@ -45,8 +45,8 @@ if ($status >= 400) {
 echo $response . PHP_EOL;
 ```
 
-## Notes
+## 说明
 
-- Decode successful responses with `json_decode($response, true)`.
-- Treat API key loading, retries, and request logging as shared infrastructure, not per-controller code.
-- If you need typed models, introduce DTOs after the request and response shapes stabilize.
+- 成功响应可用 `json_decode($response, true)` 解析。
+- API key 加载、重试和请求日志应作为共享基础设施，而不是散落在各个 controller 里。
+- 如果需要强类型模型，等请求和响应结构稳定后再引入 DTO。

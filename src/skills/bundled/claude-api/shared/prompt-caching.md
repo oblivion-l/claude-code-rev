@@ -1,34 +1,34 @@
 # Prompt Caching
 
-Use this note when the user wants lower repeated-context cost or faster repeated requests.
+当用户想降低重复上下文成本，或让重复请求更快时，参考这份说明。
 
-## When It Helps
+## 什么时候有帮助
 
-- Large static system prompts
-- Reused tool definitions
-- Long reference documents shared across many requests
-- Multi-turn workflows where a stable prefix repeats
+- 大型静态 system prompt
+- 被重复复用的工具定义
+- 在多个请求间共享的长参考文档
+- 有稳定前缀重复出现的多轮工作流
 
-## Structuring Advice
+## 结构建议
 
-- Put reusable content first.
-- Keep the dynamic tail as small as possible.
-- Cache stable instructions, examples, tools, and reference context before volatile user input.
-- Avoid reordering cached sections between requests.
+- 把可复用内容放在前面。
+- 尽量缩小动态尾部内容。
+- 在易变化的用户输入之前，先缓存稳定的指令、示例、工具和参考上下文。
+- 不要在请求之间随意调整已缓存片段的顺序。
 
-## Reasoning About Hits
+## 如何理解命中率
 
-- Cache usefulness depends on long shared prefixes, not just similar meaning.
-- Small structural changes near the top of the prompt can break reuse.
-- Tool definitions count toward the reusable prefix, so changing schemas can reduce hit rate.
+- cache 是否有价值取决于长共享前缀，而不只是“语义相似”。
+- prompt 顶部附近的小结构变化就可能破坏复用。
+- 工具定义也属于可复用前缀，因此修改 schema 会降低命中率。
 
-## Debugging Low Hit Rates
+## 如何排查低命中率
 
-- Compare request prefixes, not just the final prompt text mentally.
-- Check whether timestamps, request IDs, or per-turn metadata are being inserted too early.
-- Make sure the application is not rebuilding tool definitions or examples in a different order.
+- 排查时要比较请求前缀，而不是只凭印象看最终 prompt 文本。
+- 检查时间戳、request ID 或每轮元数据是不是插得太靠前。
+- 确保应用没有用不同顺序重建工具定义或示例。
 
-## Guidance For Answers
+## 回答建议
 
-- Explain caching as an optimization for repeated static prefix content.
-- If the user asks for current support matrix or exact API fields, verify against Anthropic’s live prompt caching docs.
+- 把 caching 解释为“针对重复静态前缀内容的优化”。
+- 如果用户问当前支持矩阵或精确 API 字段，去核对 Anthropic 最新 prompt caching 文档。

@@ -1,8 +1,8 @@
 # Python Streaming
 
-Use streaming when you want text as it arrives instead of waiting for the final message.
+如果你希望文本边到边显示，而不是等到最终消息完成后一次性拿到结果，就使用 streaming。
 
-## Simple text streaming
+## 简单文本流式输出
 
 ```python
 from anthropic import Anthropic
@@ -18,25 +18,25 @@ with client.messages.stream(
         print(text, end="", flush=True)
 ```
 
-## Get the final message
+## 获取最终消息
 
-If you want streaming transport but still need the final structured `Message`, use the stream helper and then call the SDK method that returns the completed response object for the stream.
+如果你既想要 streaming 传输，又希望拿到最终结构化的 `Message`，可以先使用 stream helper，再调用 SDK 中返回完整响应对象的方法。
 
-## When streaming is worth it
+## 什么时候值得用 streaming
 
-- chat or terminal UIs
-- long generations
-- progress feedback for users
-- tool use flows where early visibility matters
+- 聊天或终端 UI
+- 长文本生成
+- 需要给用户提供进度反馈
+- 对“尽早看到中间结果”很重要的 tool use 流程
 
-## Practical guidance
+## 实践建议
 
-- Treat streamed events as incremental UI updates.
-- Keep the final assembled message as the authoritative result.
-- Long non-streaming requests are more exposed to idle network timeouts than streaming or batches.
-- If you do not need live tokens, normal `messages.create(...)` is simpler.
+- 把流式事件当成 UI 的增量更新。
+- 最终拼装完成的消息才是权威结果。
+- 很长的非流式请求比 streaming 或 batches 更容易暴露在空闲网络超时风险下。
+- 如果你不需要实时 token，普通 `messages.create(...)` 会更简单。
 
-## Official references
+## 官方参考
 
-- Streaming guide: `https://platform.claude.com/docs/en/build-with-claude/streaming`
-- Python SDK: `https://platform.claude.com/docs/en/api/sdks/python`
+- Streaming 指南：`https://platform.claude.com/docs/en/build-with-claude/streaming`
+- Python SDK：`https://platform.claude.com/docs/en/api/sdks/python`

@@ -1,8 +1,8 @@
 # Go Claude API
 
-Go works well with the raw Messages API using `net/http`.
+在 Go 中，直接用 `net/http` 调 Messages API 就足够起步。
 
-## Minimal Example
+## 最小示例
 
 ```go
 package main
@@ -52,9 +52,9 @@ func main() {
 }
 ```
 
-## Notes
+## 说明
 
-- Create a reusable `http.Client` with timeouts instead of relying on `DefaultClient` in production.
-- Parse the JSON response into structs once your schema is stable.
-- Retry `429`, `500`, `529`, and transient network errors with backoff.
-- Keep the request builder isolated so you can reuse it for tool use, prompt caching, or files later.
+- 生产环境里不要依赖 `DefaultClient`，而是创建带超时配置、可复用的 `http.Client`。
+- 当返回结构稳定后，把 JSON 响应解析进结构体。
+- 对 `429`、`500`、`529` 和瞬时网络错误要配合 backoff 重试。
+- 把请求构造逻辑单独封装，便于后续复用到 tool use、prompt caching 或 files 流程。

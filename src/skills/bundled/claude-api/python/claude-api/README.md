@@ -1,14 +1,14 @@
 # Python Claude API
 
-Use the official Anthropic Python SDK for direct Claude API access from Python.
+如果你想在 Python 中直接调用 Claude API，优先使用官方 Anthropic Python SDK。
 
-## Install
+## 安装
 
 ```bash
 pip install anthropic
 ```
 
-Optional extras:
+可选扩展：
 
 ```bash
 pip install anthropic[aiohttp]
@@ -16,7 +16,7 @@ pip install anthropic[bedrock]
 pip install anthropic[vertex]
 ```
 
-## Basic sync request
+## 基础同步请求
 
 ```python
 import os
@@ -35,7 +35,7 @@ message = client.messages.create(
 print(message.content)
 ```
 
-## Async request
+## 异步请求
 
 ```python
 import os
@@ -56,22 +56,22 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-## Use this SDK when
+## 适合在这些场景使用
 
-- you want raw `messages.create(...)` access
-- you need sync or async Python clients
-- you are implementing streaming, tool use, batches, or Files API directly
+- 你需要直接访问原始的 `messages.create(...)`
+- 你需要同步或异步 Python 客户端
+- 你准备直接实现 streaming、tool use、batches 或 Files API
 
-## Practical guidance
+## 实践建议
 
-- Prefer current stable model aliases or exact IDs your application supports.
-- Keep long-lived static context at the start of the request so prompt caching can help.
-- Use streaming for long outputs or latency-sensitive UIs.
-- Use Batches for large asynchronous jobs.
-- Use Files API when the same document or image must be referenced across requests.
+- 优先使用当前稳定的模型别名，或你在应用中明确支持的精确模型 ID。
+- 把长期稳定的上下文放在请求前部，便于利用 prompt caching。
+- 长输出或对延迟敏感的 UI，优先用 streaming。
+- 大规模异步任务优先用 Batches。
+- 同一文档或图片需要跨请求复用时，优先用 Files API。
 
-## Official references
+## 官方参考
 
-- Python SDK: `https://platform.claude.com/docs/en/api/sdks/python`
-- Client SDK overview: `https://platform.claude.com/docs/en/api/client-sdks`
-- Messages API reference: `https://platform.claude.com/docs/en/api/python/messages`
+- Python SDK：`https://platform.claude.com/docs/en/api/sdks/python`
+- Client SDK 概览：`https://platform.claude.com/docs/en/api/client-sdks`
+- Messages API 参考：`https://platform.claude.com/docs/en/api/python/messages`

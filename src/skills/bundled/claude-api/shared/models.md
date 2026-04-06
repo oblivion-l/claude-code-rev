@@ -1,26 +1,26 @@
-# Models
+# 模型选择
 
-Use this note when the user asks which Claude model to choose or how model naming works.
+当用户询问“该选哪个 Claude 模型”或“模型命名规则是什么”时，参考这份说明。
 
-## Selection Heuristic
+## 选择启发
 
-- Use Opus for the hardest reasoning, long-horizon planning, or highest-stakes coding tasks.
-- Use Sonnet as the default general-purpose choice for most product and engineering workloads.
-- Use Haiku when latency and cost matter more than peak reasoning depth.
+- 最难的推理、长周期规划或高风险编码任务，优先用 Opus。
+- 大多数产品和工程场景，默认优先考虑 Sonnet。
+- 当延迟和成本比极致推理深度更重要时，选择 Haiku。
 
-## Model Naming Guidance
+## 模型命名建议
 
-- Anthropic exposes dated model IDs. Prefer exact IDs in shipped code when reproducibility matters.
-- User-facing guidance can mention family names such as Opus, Sonnet, and Haiku, but implementation examples should use concrete model IDs.
-- Do not invent date suffixes. Verify current IDs against the live models overview if the user asks for exact names.
+- Anthropic 使用带日期的模型 ID。只要你关心可复现性，发布代码里就应使用精确 ID。
+- 面向用户的说明可以使用 Opus、Sonnet、Haiku 这类家族名，但实现示例应使用具体模型 ID。
+- 不要自己编造日期后缀。如果用户问精确名称，就去核对最新模型概览。
 
-## Context And Capability
+## 上下文与能力
 
-- Model family choice is only one dimension; prompt design, tool setup, caching, and streaming strategy also affect behavior.
-- Some advanced features may be model- or platform-specific. Confirm live availability before promising support.
-- If the user is deciding between Anthropic API, Bedrock, and Vertex, check the official model matrix because IDs differ by platform.
+- 模型家族只是一个维度；prompt 设计、工具配置、缓存和 streaming 策略同样会影响表现。
+- 某些高级能力可能依赖特定模型或平台。在承诺支持前，先确认实时可用性。
+- 如果用户在 Anthropic API、Bedrock 和 Vertex 之间做选择，要去查官方模型矩阵，因为不同平台的模型 ID 不一样。
 
-## Practical Advice
+## 实践建议
 
-- Default to the current Sonnet model for most app examples unless the user explicitly asks for premium capability or minimum cost.
-- For migration work, separate “API compatibility” from “behavior compatibility”; a model swap that compiles may still change output quality or tool behavior.
+- 对大多数应用示例，默认使用当前 Sonnet 模型；除非用户明确要求更高能力或最低成本。
+- 做迁移时要区分“API 兼容性”和“行为兼容性”；一个能编译通过的模型替换，仍然可能改变输出质量或工具行为。

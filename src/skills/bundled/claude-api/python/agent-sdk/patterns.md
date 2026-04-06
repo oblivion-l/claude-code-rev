@@ -1,8 +1,8 @@
-# Python Agent SDK Patterns
+# Python Agent SDK 模式
 
-## Pattern 1: one-shot automation
+## 模式 1：一次性自动化
 
-Use `query()` for isolated tasks such as "fix this file", "review this diff", or "generate release notes".
+对于“修这个文件”“审这个 diff”“生成 release notes”这类独立任务，使用 `query()`。
 
 ```python
 async for message in query(
@@ -12,11 +12,11 @@ async for message in query(
     print(message)
 ```
 
-Best when conversation history is not needed.
+适合不需要会话历史的场景。
 
-## Pattern 2: conversational workflow
+## 模式 2：对话式工作流
 
-Use `ClaudeSDKClient` when each answer should build on earlier context.
+当每一轮回答都需要建立在前文上下文之上时，使用 `ClaudeSDKClient`。
 
 ```python
 client = ClaudeSDKClient(options=ClaudeAgentOptions(cwd="."))
@@ -25,11 +25,11 @@ await client.query("Read the auth flow.")
 await client.query("Now propose a refactor with minimal risk.")
 ```
 
-Best for REPLs, chat UIs, or multi-step repair loops.
+适合 REPL、聊天 UI 或多步骤修复循环。
 
-## Pattern 3: custom tools
+## 模式 3：自定义工具
 
-Expose deterministic local logic as tools and let Claude decide when to call them.
+把确定性的本地逻辑暴露成工具，让 Claude 决定何时调用。
 
 ```python
 from claude_agent_sdk import tool
@@ -40,24 +40,24 @@ async def get_build_id(_args):
     return {"content": [{"type": "text", "text": "build-2026-03-31"}]}
 ```
 
-Keep tools narrow, typed, and side-effect conscious.
+工具要尽量收窄、强类型，并且明确副作用边界。
 
-## Pattern 4: hooks and policy
+## 模式 4：hooks 与策略
 
-Use hooks when you need approval gates, logging, or organization-specific constraints before or after tool use. Put policy in hooks or permission settings, not in the prompt alone.
+如果你需要在 tool use 前后加入审批、日志或组织级约束，就使用 hooks。策略应放在 hooks 或权限设置里，而不是只写在 prompt 中。
 
-## Pattern 5: streaming UIs
+## 模式 5：streaming UI
 
-Enable partial messages when building terminal or web interfaces that should render text and tool calls as they arrive. Treat streamed events as incremental updates; keep the final `AssistantMessage` or `ResultMessage` as the source of truth.
+构建终端或 Web 界面，并且希望文本和工具调用边到边显示时，应启用 partial messages。把流式事件当作增量更新，最终仍以 `AssistantMessage` 或 `ResultMessage` 为准。
 
-## Pattern 6: robust session control
+## 模式 6：稳健的 session 控制
 
-- Set `cwd` explicitly.
-- Set permission mode deliberately.
-- Close `ClaudeSDKClient` in `finally`.
-- Surface `CLINotFoundError`, connection errors, and permission denials to the caller.
+- 显式设置 `cwd`。
+- 明确选择 permission mode。
+- 在 `finally` 中关闭 `ClaudeSDKClient`。
+- 把 `CLINotFoundError`、连接错误和权限拒绝明确抛给调用方。
 
-## When not to use the Agent SDK
+## 什么时候不该用 Agent SDK
 
-- Use the Anthropic Python SDK for plain `messages.create(...)` workflows.
-- Use the Messages API directly when you need raw API semantics, provider portability, or no Claude Code dependency.
+- 只需要普通 `messages.create(...)` 工作流时，使用 Anthropic Python SDK。
+- 如果你需要原始 API 语义、provider 可移植性，或者完全不依赖 Claude Code，就直接调用 Messages API。

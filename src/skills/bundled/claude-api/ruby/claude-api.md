@@ -1,8 +1,8 @@
 # Ruby Claude API
 
-Ruby can call the Messages API directly with `Net::HTTP`.
+Ruby 可以直接用 `Net::HTTP` 调用 Messages API。
 
-## Minimal Example
+## 最小示例
 
 ```ruby
 require 'json'
@@ -34,8 +34,8 @@ raise response.body unless response.is_a?(Net::HTTPSuccess)
 puts response.body
 ```
 
-## Notes
+## 说明
 
-- Parse the JSON response and extract text blocks from `content`.
-- Set open/read timeouts on the HTTP client for production use.
-- Add retry and rate-limit handling in one shared client object instead of duplicating it across jobs or controllers.
+- 解析 JSON 响应后，从 `content` 中提取文本块。
+- 生产环境里要给 HTTP client 设置连接和读取超时。
+- 重试和限流处理应收敛在一个共享 client 对象里，不要在多个 job 或 controller 中重复实现。

@@ -1,32 +1,32 @@
-# Error Codes
+# 错误码与排障
 
-Use this note when the user asks why an Anthropic API call failed or how to harden error handling.
+当用户问“为什么 Anthropic API 调用失败”或“如何加强错误处理”时，参考这份说明。
 
-## What To Check First
+## 先检查什么
 
-- HTTP status code
-- Anthropic error type and message body
-- Whether the failure is transient or request-specific
-- Whether streaming failed before completion or before the first event
+- HTTP 状态码
+- Anthropic 错误类型和消息体
+- 失败是瞬时故障，还是请求本身有问题
+- streaming 是在完成前失败，还是连第一个事件都没收到
 
-## Practical Triage
+## 实践排查
 
-- `400`-class errors usually mean request shape, model choice, auth headers, or unsupported parameters need to be fixed before retrying.
-- `401` and `403` usually indicate key, workspace, or permission issues rather than a temporary outage.
-- `404` often means the referenced resource, model, batch, or file ID is wrong for the current API surface.
-- `429` should be handled with backoff, retry, and concurrency control.
-- `5xx` should be treated as transient service failures and retried with jittered exponential backoff.
+- `400` 类错误通常表示请求结构、模型选择、认证头或参数本身有问题，修正后再重试。
+- `401` 和 `403` 通常表示 key、workspace 或权限问题，而不是临时故障。
+- `404` 往往意味着你引用的资源、模型、batch 或 file ID 不属于当前 API 面。
+- `429` 应结合 backoff、重试和并发控制处理。
+- `5xx` 应视为瞬时服务故障，并使用带抖动的指数退避重试。
 
-## Implementation Guidance
+## 实现建议
 
-- Log the Anthropic request ID when available so failed requests can be correlated.
-- Surface response body details in server logs, but avoid leaking full prompts or secrets to users.
-- Make retries idempotent where possible, especially for batch polling and file workflows.
-- Distinguish validation failures from transport failures in your code paths.
+- 当响应里有 Anthropic request ID 时，把它记进日志，便于关联失败请求。
+- 在服务端日志中保留响应体细节，但不要把完整 prompt 或密钥泄露给用户。
+- 尽可能让重试具备幂等性，尤其是 batch 轮询和 file 工作流。
+- 在代码里区分校验失败和传输失败。
 
-## Recovery Pattern
+## 恢复模式
 
-1. Validate request construction locally.
-2. Retry only transient classes such as rate limits and server errors.
-3. For streaming, decide whether to resume, restart, or fall back to non-streaming output.
-4. If the user asks for exact current error semantics, verify against Anthropic’s live API reference.
+1. 先在本地验证请求构造是否正确。
+2. 只对限流、服务端错误等瞬时故障做重试。
+3. 对 streaming 场景，明确是恢复、重启，还是回退到非流式输出。
+4. 如果用户问的是当前精确错误语义，去核对 Anthropic 最新 API 参考。

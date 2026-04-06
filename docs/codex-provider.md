@@ -7,7 +7,7 @@
 - 不替换现有 Claude/Anthropic provider 栈
 - 不改动现有命令树和 CLI bootstrap
 - 只有显式打开环境变量开关时才会启用
-- 当前阶段只支持 headless `--print` 请求，并额外提供同进程最小 `--continue`
+- 当前阶段只支持 headless `--print` 请求，并额外提供基于持久化 state 的 `--continue` / `--resume`
 
 ## 当前已支持
 
@@ -17,13 +17,14 @@
 - `--output-format json` 的最终结果输出
 - `--system-prompt` 和 `--append-system-prompt`
 - `--json-schema` 的严格结构化输出校验
-- 当内存中已经存在 Codex 会话状态时，支持同进程 `--continue`
+- 跨进程 `--continue`
+- `--resume <state-id>`
+- `--resume --resume-session-at <assistant-message-uuid>`
 
 ## 当前暂不支持
 
 - 交互式 REPL 模式
-- `--resume`、`--resume-session-at`、rewind、fork session
-- `--continue` 的跨进程恢复
+- rewind、fork session
 - `--input-format stream-json`
 - 接入现有工具编排链路的 tool calling
 - MCP / agent 工作流
@@ -89,6 +90,27 @@ bun run dev -p \
   "Return the main source files as JSON"
 ```
 
+跨进程 `--continue`：
+
+```bash
+bun run dev -p "Explain the repository structure"
+bun run dev -p --continue "Now summarize the main risks"
+```
+
+显式 `--resume <state-id>`：
+
+```bash
+bun run dev -p --output-format json "Explain the repository structure"
+bun run dev -p --resume <session_id> "Now summarize the main risks"
+```
+
+基于 assistant turn 的 `--resume-session-at`：
+
+```bash
+bun run dev -p --output-format stream-json --verbose "Explain the repository structure"
+bun run dev -p --resume <session_id> --resume-session-at <assistant_message_uuid> "Branch from that earlier answer"
+```
+
 ## 验收说明
 
 完整的发布验收清单和逐条命令预期见 [codex-acceptance.md](./codex-acceptance.md)。
@@ -101,12 +123,14 @@ bun run dev -p \
 - 校验失败时返回非零退出码
 - 在 `stream-json` 模式下，最终会输出一个 `system` 事件，`subtype` 为 `codex_json_schema`，并携带 `parsed_result` 或 `validation_error`
 
-当启用 `--continue` 时：
+当启用 `--continue` / `--resume` 时：
 
-- Codex 只支持同进程内继续
-- provider 依赖前一次 Codex headless 请求留下的内存态 response id
-- 新开一个 CLI 进程不会自动恢复这份状态
-- `--resume` 和 `--resume-session-at` 仍然会 fail-fast
+- provider 会把 conversation state 持久化到本地磁盘
+- `--continue` 会按当前工作目录加载最近一次成功的 Codex headless state
+- `--resume <state-id>` 会按显式 state id 加载持久化 state
+- `--resume-session-at` 会在持久化的 assistant turn history 中查找目标 turn，并从该 turn 对应的 response id 继续
+- 当前默认持久化目录为 `~/.claude/headless-provider-state`
+- 如需定向覆盖，可设置 `CLAUDE_CODE_HEADLESS_STATE_DIR`
 
 ## 常见错误
 
@@ -140,15 +164,20 @@ bun run dev -p \
 - 说明模型虽然返回了 JSON，但没有通过本地 schema 校验。
 - 重点检查必填字段、字段类型和 `additionalProperties`。
 
-`Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.`
+`Codex provider continue requested but no conversation state is available for the current directory.`
 
-- 说明使用了 `--continue`，但当前没有可用的内存态 Codex 响应链。
-- 这通常出现在新进程里直接执行，或者此前没有完成任何 Codex headless 请求。
+- 说明使用了 `--continue`，但当前工作目录下没有可恢复的持久化 state。
+- 先发起一次成功的 Codex headless 请求，或改用 `--resume <state-id>`。
 
-`Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.`
+`Codex provider resume requested but no persisted conversation state is available.`
 
-- 说明 Codex headless 路径仍然不支持 `--resume` 和 `--resume-session-at`。
-- 当前只能发起 fresh request，或者在同一进程内使用 `--continue`。
+- 说明使用了 `--resume`，但没有找到对应的持久化 state。
+- 检查 `--resume <state-id>` 是否来自此前一次 Codex headless 结果的 `session_id`。
+
+`Codex provider could not find persisted assistant turn ... for --resume-session-at.`
+
+- 说明当前 state 中不存在你指定的 assistant turn。
+- 这个值应来自此前 `json` 或 `stream-json` 输出中的 assistant 结果 `uuid`。
 
 API 侧 schema 拒绝或不支持关键字
 

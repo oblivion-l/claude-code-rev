@@ -71,7 +71,7 @@ bun run version
 - 支持 `--print` 单轮文本问答
 - 支持流式文本输出
 - 支持 `--json-schema` 结构化输出最小兼容
-- 支持同进程最小 `--continue`
+- 支持持久化 `--continue` / `--resume`
 - 保留现有 CLI bootstrap 和命令树
 - 在环境变量关闭时，默认仍走原有 Claude provider 路径
 

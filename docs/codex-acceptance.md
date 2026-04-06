@@ -5,10 +5,9 @@
 本轮验收范围：
 
 - 仅覆盖 headless `--print`
-- 覆盖单轮请求和同进程 `--continue`
+- 覆盖单轮请求、跨进程 `--continue` 和持久化 `--resume`
 - 覆盖可选的 `--json-schema` structured outputs
 - 不包含 REPL 改动
-- 不包含 `--resume` 或跨进程恢复
 - 不包含 MCP 或工具编排改动
 
 ## 环境准备
@@ -203,7 +202,7 @@ bun run dev -p \
   - `Codex structured outputs are not supported for model ... or this API parameter set`
   - `Codex structured output request was rejected by the API for model ...`
 
-### 8. 无同进程状态时的 `continue` fail-fast 路径
+### 8. 无持久化 state 时的 `continue` fail-fast 路径
 
 执行：
 
@@ -215,9 +214,9 @@ bun run dev -p --continue "Follow up on the prior answer"
 
 - 在新进程中执行时，命令退出非零
 - 错误信息包含：
-  `Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.`
+  `Codex provider continue requested but no conversation state is available for the current directory.`
 
-### 9. `resume` fail-fast 路径
+### 9. `resume` 无有效 state 时的 fail-fast 路径
 
 执行：
 
@@ -229,7 +228,23 @@ bun run dev -p --resume "Follow up on the prior answer"
 
 - 命令退出非零
 - 错误信息包含：
-  `Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.`
+  `Codex provider resume requested but no persisted conversation state is available.`
+
+### 10. 跨进程 `resume` 成功路径
+
+执行：
+
+```bash
+bun run dev -p --output-format json "Explain the repository structure"
+bun run dev -p --resume <session_id> "Now summarize the main risks"
+```
+
+预期：
+
+- 第一条命令退出码为 `0`
+- 第一条命令的 JSON 结果里包含 `session_id`
+- 第二条命令退出码为 `0`
+- 第二条命令能够基于前一次 state 正常续写，而不是当作完全独立的新对话
 
 ## 常见报错对照
 
@@ -243,8 +258,9 @@ bun run dev -p --resume "Follow up on the prior answer"
 | `Invalid JSON Schema for --json-schema` | 本地 schema 编译失败 | 修正 schema 结构 |
 | `Codex structured output is not valid JSON` | 模型返回了非 JSON 文本 | 收紧提示词和输出目标 |
 | `Codex structured output does not match the provided schema` | 返回的 JSON 没有通过本地 schema 校验 | 调整提示词或 schema |
-| `Codex provider continue requested but no in-process conversation state is available. Continue only works within the same process.` | 在没有内存态会话链的情况下使用了 `--continue` | 在同一进程内重试，或改为 fresh request |
-| `Codex provider does not support --resume or --resume-session-at in this mode. Use a fresh request, or use --continue within the same process when conversation state is available.` | Codex headless 路径仍不支持 `--resume` / `--resume-session-at` | 使用 fresh request，或仅在同进程内使用 `--continue` |
+| `Codex provider continue requested but no conversation state is available for the current directory.` | 当前目录下没有可恢复的持久化 state | 先完成一次成功请求，或改用有效的 `--resume <state-id>` |
+| `Codex provider resume requested but no persisted conversation state is available.` | 没有找到对应的持久化 state | 检查 `--resume <state-id>` 是否有效 |
+| `Codex provider could not find persisted assistant turn ... for --resume-session-at.` | 当前 state 中不存在指定 assistant turn | 使用此前输出中的 assistant `uuid`，或直接从最新 turn 继续 |
 
 ## 回滚方案
 

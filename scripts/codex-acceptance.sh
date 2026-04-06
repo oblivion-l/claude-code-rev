@@ -200,13 +200,13 @@ run_fail_fast() {
   run_case \
     'Fail-fast: continue without state' \
     'nonzero' \
-    'Codex provider continue requested but no in-process conversation state is available\. Continue only works within the same process\.' \
+    'Codex provider continue requested but no conversation state is available for the current directory\.' \
     "bun run dev -p --continue 'Follow up on the prior answer'"
 
   run_case \
-    'Fail-fast: resume unsupported' \
+    'Fail-fast: resume without persisted state' \
     'nonzero' \
-    'Codex provider does not support --resume or --resume-session-at in this mode\. Use a fresh request, or use --continue within the same process when conversation state is available\.' \
+    'Codex provider resume requested but no persisted conversation state is available\.' \
     "bun run dev -p --resume 'Follow up on the prior answer'"
 }
 

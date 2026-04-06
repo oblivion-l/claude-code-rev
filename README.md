@@ -66,6 +66,31 @@
   bun run version
   ```
 
+  ## Codex provider (minimal headless path)
+
+  A minimal Codex provider integration is now available for personal headless
+  usage. It is off by default and only activates when
+  `CLAUDE_CODE_USE_CODEX=1` is set.
+
+  Current scope:
+
+  - supports single-turn `--print` text prompts
+  - supports streaming text output
+  - preserves the existing CLI bootstrap and command tree
+  - leaves the default Claude provider path untouched when the flag is off
+
+  Quick start:
+
+  ```bash
+  export CLAUDE_CODE_USE_CODEX=1
+  export OPENAI_API_KEY=your_api_key
+  bun run dev -p "Explain this repository"
+  ```
+
+  Detailed usage and migration notes:
+
+  - [docs/codex-provider.md](./docs/codex-provider.md)
+
   ## 中文说明
 
   # 还原后的 Claude Code 源码
@@ -131,3 +156,26 @@
   ```bash
   bun run version
   ```
+
+  ### Codex Provider 最小接入
+
+  现在仓库里增加了一个最小可用的 Codex provider 接入路径，但默认关闭，
+  只有设置 `CLAUDE_CODE_USE_CODEX=1` 才会启用。
+
+  当前只支持：
+
+  - `--print` 单轮文本问答
+  - 流式文本输出
+  - 通过环境变量随时回退到原有 Claude 路径
+
+  快速开始：
+
+  ```bash
+  export CLAUDE_CODE_USE_CODEX=1
+  export OPENAI_API_KEY=your_api_key
+  bun run dev -p "Explain this repository"
+  ```
+
+  详细说明见：
+
+  - [docs/codex-provider.md](./docs/codex-provider.md)

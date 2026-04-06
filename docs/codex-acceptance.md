@@ -43,6 +43,35 @@ export OPENAI_ORG_ID=org_123
 export OPENAI_PROJECT_ID=proj_123
 ```
 
+## Scripted Acceptance
+
+Use the bundled acceptance script for the deterministic checks in this document:
+
+```bash
+bash scripts/codex-acceptance.sh --quick
+bash scripts/codex-acceptance.sh --full
+```
+
+Script modes:
+
+- `--quick` runs preflight plus the core happy path checks
+- `--full` runs the scripted checklist, including deterministic fail-fast cases
+- `--dry-run` prints the commands without executing them
+
+Examples:
+
+```bash
+bash scripts/codex-acceptance.sh --dry-run --quick
+bash scripts/codex-acceptance.sh --dry-run --full
+```
+
+Notes:
+
+- non-dry runs exit early with a friendly error if `OPENAI_API_KEY` is unset
+- command failures are recorded and execution continues until the final summary
+- the script returns non-zero if any scripted check fails
+- the API-side structured-output rejection path remains a manual check because it depends on a model/base URL combination that reaches the API but rejects `text.format`
+
 ## Preflight
 
 Run:

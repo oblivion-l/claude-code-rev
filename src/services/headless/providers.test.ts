@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { createCodexHeadlessProvider } from 'src/services/codex/runHeadlessCodex.js'
-import { resolveHeadlessProvider } from './providers.js'
+import {
+  getHeadlessProviderRegistry,
+  resolveHeadlessProvider,
+} from './providers.js'
 
 const originalCodexFlag = process.env.CLAUDE_CODE_USE_CODEX
 
@@ -16,11 +19,22 @@ describe('createCodexHeadlessProvider', () => {
   it('exposes stable provider metadata and capabilities', () => {
     const provider = createCodexHeadlessProvider()
 
-    expect(provider.id).toBe('codex')
+    expect(provider.metadata).toEqual({
+      id: 'codex',
+      displayName: 'Codex',
+    })
     expect(provider.capabilities).toEqual({
       supportsResume: false,
       supportsStructuredOutput: true,
     })
+  })
+})
+
+describe('getHeadlessProviderRegistry', () => {
+  it('returns a registry containing the Codex provider', () => {
+    expect(getHeadlessProviderRegistry().map(provider => provider.metadata.id)).toEqual([
+      'codex',
+    ])
   })
 })
 
@@ -34,6 +48,6 @@ describe('resolveHeadlessProvider', () => {
   it('returns the Codex provider when Codex is enabled', () => {
     process.env.CLAUDE_CODE_USE_CODEX = '1'
 
-    expect(resolveHeadlessProvider()?.id).toBe('codex')
+    expect(resolveHeadlessProvider()?.metadata.id).toBe('codex')
   })
 })

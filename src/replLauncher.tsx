@@ -2,6 +2,7 @@ import React from 'react';
 import type { StatsStore } from './context/stats.js';
 import type { Root } from './ink.js';
 import type { Props as REPLProps } from './screens/REPL.js';
+import { resolveReplProvider } from './services/repl/providers.js';
 import type { AppState } from './state/AppStateStore.js';
 import type { FpsMetrics } from './utils/fpsTracker.js';
 type AppWrapperProps = {
@@ -10,6 +11,16 @@ type AppWrapperProps = {
   initialState: AppState;
 };
 export async function launchRepl(root: Root, appProps: AppWrapperProps, replProps: REPLProps, renderAndRun: (root: Root, element: React.ReactNode) => Promise<void>): Promise<void> {
+  const replProvider = resolveReplProvider();
+  if (replProvider) {
+    await replProvider.launch({
+      root,
+      appProps,
+      replProps,
+      renderAndRun
+    });
+    return;
+  }
   const {
     App
   } = await import('./components/App.js');

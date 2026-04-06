@@ -29,6 +29,7 @@ describe('createCodexReplProvider', () => {
       supportsPersistedState: false,
       supportsTools: false,
     })
+    expect(typeof provider.launch).toBe('function')
   })
 })
 

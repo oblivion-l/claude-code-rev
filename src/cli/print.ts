@@ -191,6 +191,8 @@ import { getAccountInformation } from 'src/utils/auth.js'
 import { OAuthService } from 'src/services/oauth/index.js'
 import { installOAuthTokens } from 'src/cli/handlers/auth.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
+import { isCodexHeadlessEnabled } from 'src/services/codex/config.js'
+import { runHeadlessCodex } from 'src/services/codex/runHeadlessCodex.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
@@ -789,6 +791,34 @@ export async function runHeadless(
       'Error: When using --print, --output-format=stream-json requires --verbose\n',
     )
     gracefulShutdownSync(1)
+    return
+  }
+
+  if (isCodexHeadlessEnabled()) {
+    registerProcessOutputErrorHandlers()
+
+    const { exitCode } = await runHeadlessCodex({
+      inputPrompt,
+      structuredIO,
+      options: {
+        continue: options.continue,
+        resume: options.resume,
+        resumeSessionAt: options.resumeSessionAt,
+        outputFormat: options.outputFormat,
+        verbose: options.verbose,
+        jsonSchema: options.jsonSchema,
+        systemPrompt: options.systemPrompt,
+        appendSystemPrompt: options.appendSystemPrompt,
+        userSpecifiedModel: options.userSpecifiedModel,
+        sdkUrl: options.sdkUrl,
+        replayUserMessages: options.replayUserMessages,
+        includePartialMessages: options.includePartialMessages,
+        forkSession: options.forkSession,
+        rewindFiles: options.rewindFiles,
+        agent: options.agent,
+      },
+    })
+    gracefulShutdownSync(exitCode)
     return
   }
 

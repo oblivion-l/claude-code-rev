@@ -101,6 +101,7 @@ describe('prepareCodexToolOrchestration', () => {
     const runtime = createFakeRuntime([createFakeTool('Read')])
 
     const orchestration = await prepareCodexToolOrchestration({
+      mode: 'repl',
       runtime,
       model: 'gpt-5-codex',
       abortController: new AbortController(),
@@ -129,6 +130,7 @@ describe('prepareCodexToolOrchestration', () => {
 
   it('keeps MCP-only requests valid when no local runtime is present', async () => {
     const orchestration = await prepareCodexToolOrchestration({
+      mode: 'repl',
       model: 'gpt-5-codex',
       abortController: new AbortController(),
       mcpTools: [

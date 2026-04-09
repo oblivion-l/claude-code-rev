@@ -363,6 +363,7 @@ export class CodexReplSession {
       requestTools,
       functionToolExecutor,
     } = await prepareCodexToolOrchestration({
+      mode: 'repl',
       runtime: this.options.runtime,
       mcpTools: this.options.mcpTools,
       model: this.config.model,

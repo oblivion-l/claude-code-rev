@@ -64,6 +64,11 @@
 - 不接 REPL slash command 工具流，不开放 Agent 工具编排
 - 与远程 MCP 透传保持并列关系，不合并成新的 orchestration 协议
 
+当前 Codex tool capability matrix 为：
+
+- headless `--print`：支持本地 function tools；不支持远程 MCP；不支持 remote MCP 与本地 function tools 混合
+- Codex REPL：支持本地 function tools；支持远程 MCP；支持两者混合装配
+
 不支持的组合会直接 fail-fast，返回明确错误，而不是静默回退到其他路径。
 
 ## 如何启用
@@ -261,6 +266,11 @@ API 侧 schema 拒绝或不支持关键字
 
 - 说明请求里启用了 Codex 本地 function tools，但 API 明确拒绝了 `tools` 参数或对应能力组合。
 - 这通常表示当前模型或当前 Responses API 参数组合不支持本地 function tools。
+
+`Codex provider currently does not support remote MCP tools in --print mode.`
+
+- 说明你触发了超出当前 headless capability matrix 的工具组合。
+- 当前远程 MCP 只在 Codex REPL 路径支持。
 
 ## 回滚方式
 

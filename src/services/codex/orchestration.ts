@@ -4,11 +4,14 @@ import {
   selectCodexFunctionTools,
   type CodexFunctionToolExecutor,
 } from './toolBridge.js'
+import {
+  assertCodexToolingRequestSupported,
+  type CodexToolingMode,
+} from './capabilities.js'
 import type { CodexMcpTool, CodexRequestTool } from './types.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 
 export const CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS = 8
-export type CodexToolingMode = 'headless' | 'repl'
 
 export type CodexToolingUsage = {
   usedMcpTools: boolean
@@ -50,11 +53,18 @@ export function requireCodexFunctionToolExecutor(args: {
 }
 
 export async function prepareCodexToolOrchestration(args: {
+  mode: CodexToolingMode
   runtime?: CodexToolRuntime
   mcpTools?: CodexMcpTool[]
   model: string
   abortController: AbortController
 }): Promise<CodexToolOrchestration> {
+  assertCodexToolingRequestSupported({
+    mode: args.mode,
+    runtime: args.runtime,
+    mcpTools: args.mcpTools,
+  })
+
   const functionEnabledTools = args.runtime
     ? selectCodexFunctionTools(args.runtime.tools)
     : []

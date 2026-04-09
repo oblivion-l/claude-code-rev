@@ -279,6 +279,7 @@ export async function runHeadlessCodex({
     requestTools,
     functionToolExecutor,
   } = await prepareCodexToolOrchestration({
+    mode: 'headless',
     runtime,
     model: config.model,
     abortController,

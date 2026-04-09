@@ -4,11 +4,16 @@ import {
   type CodexToolingCapabilities,
   type CodexToolingMode,
 } from './capabilities.js'
+import {
+  getCodexModelPolicy,
+  type CodexModelPolicy,
+} from './modelPolicy.js'
 import type { CodexMcpTool } from './types.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 
 export type CodexToolingRequestPlan = {
   mode: CodexToolingMode
+  modelPolicy: CodexModelPolicy
   capabilities: CodexToolingCapabilities
   requested: {
     remoteMcpTools: boolean
@@ -23,17 +28,20 @@ export type CodexToolingRequestPlan = {
 
 export function resolveCodexToolingRequestPlan(args: {
   mode: CodexToolingMode
+  model: string
   runtime?: CodexToolRuntime
   mcpTools?: CodexMcpTool[]
 }): CodexToolingRequestPlan {
   assertCodexToolingRequestSupported(args)
 
   const capabilities = getCodexToolingCapabilities(args.mode)
+  const modelPolicy = getCodexModelPolicy(args.model)
   const requestedRemoteMcpTools = (args.mcpTools?.length ?? 0) > 0
   const requestedLocalFunctionTools = Boolean(args.runtime)
 
   return {
     mode: args.mode,
+    modelPolicy,
     capabilities,
     requested: {
       remoteMcpTools: requestedRemoteMcpTools,
@@ -44,10 +52,12 @@ export function resolveCodexToolingRequestPlan(args: {
     enabled: {
       remoteMcpTools:
         requestedRemoteMcpTools &&
-        capabilities.supportsRemoteMcpTools,
+        capabilities.supportsRemoteMcpTools &&
+        modelPolicy.supportsRemoteMcpTools,
       localFunctionTools:
         requestedLocalFunctionTools &&
-        capabilities.supportsLocalFunctionTools,
+        capabilities.supportsLocalFunctionTools &&
+        modelPolicy.supportsLocalFunctionTools,
     },
   }
 }

@@ -35,6 +35,7 @@ describe('resolveCodexToolingRequestPlan', () => {
   it('builds a stable repl mixed-tooling request plan', () => {
     const plan = resolveCodexToolingRequestPlan({
       mode: 'repl',
+      model: 'gpt-5-codex',
       runtime: createFakeRuntime(),
       mcpTools: [
         {
@@ -54,12 +55,20 @@ describe('resolveCodexToolingRequestPlan', () => {
       remoteMcpTools: true,
       localFunctionTools: true,
     })
+    expect(plan.modelPolicy).toEqual({
+      model: 'gpt-5-codex',
+      supportsStructuredOutput: true,
+      supportsRemoteMcpTools: true,
+      supportsLocalFunctionTools: true,
+      supportsMixedTooling: true,
+    })
   })
 
   it('fails fast for unsupported headless mixed-tooling requests', () => {
     expect(() =>
       resolveCodexToolingRequestPlan({
         mode: 'headless',
+        model: 'gpt-5-codex',
         runtime: createFakeRuntime(),
         mcpTools: [
           {

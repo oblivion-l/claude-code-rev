@@ -130,6 +130,7 @@ describe('prepareCodexToolOrchestration', () => {
       remoteMcpTools: true,
       localFunctionTools: true,
     })
+    expect(orchestration.requestPlan.modelPolicy.model).toBe('gpt-5-codex')
   })
 
   it('keeps MCP-only requests valid when no local runtime is present', async () => {

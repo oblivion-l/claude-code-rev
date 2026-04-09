@@ -56,13 +56,14 @@ export function requireCodexFunctionToolExecutor(args: {
 
 export async function prepareCodexToolOrchestration(args: {
   mode: CodexToolingMode
+  model: string
   runtime?: CodexToolRuntime
   mcpTools?: CodexMcpTool[]
-  model: string
   abortController: AbortController
 }): Promise<CodexToolOrchestration> {
   const requestPlan = resolveCodexToolingRequestPlan({
     mode: args.mode,
+    model: args.model,
     runtime: args.runtime,
     mcpTools: args.mcpTools,
   })

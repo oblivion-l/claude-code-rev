@@ -1,16 +1,7 @@
 import { Ajv } from 'ajv'
 import type { ErrorObject, ValidateFunction } from 'ajv'
+import { modelSupportsCodexStructuredOutput } from './modelPolicy.js'
 import type { CodexStructuredOutputFormat } from './types.js'
-
-const STRUCTURED_OUTPUT_MODEL_PREFIXES = [
-  'gpt-5-codex',
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-max',
-  'gpt-5.2-codex',
-  'gpt-5.3-codex',
-  'gpt-5.4',
-  'gpt-5',
-] as const
 
 type SchemaValidationResult =
   | {
@@ -56,12 +47,6 @@ function formatAjvErrors(errors: ErrorObject[] | null | undefined): string {
   return errors
     .map(error => `${error.instancePath || 'root'}: ${error.message}`)
     .join(', ')
-}
-
-export function modelSupportsCodexStructuredOutput(model: string): boolean {
-  return STRUCTURED_OUTPUT_MODEL_PREFIXES.some(prefix =>
-    model.startsWith(prefix),
-  )
 }
 
 export function compileCodexJsonSchema({

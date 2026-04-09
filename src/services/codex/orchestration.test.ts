@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
-import { prepareCodexToolOrchestration } from './orchestration.js'
+import {
+  buildMissingCodexLocalToolRuntimeMessage,
+  prepareCodexToolOrchestration,
+  requireCodexFunctionToolExecutor,
+} from './orchestration.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 
 function createFakeTool(name: string): Tool {
@@ -144,5 +148,21 @@ describe('prepareCodexToolOrchestration', () => {
       },
     ])
     expect(orchestration.functionToolExecutor).toBeNull()
+  })
+
+  it('returns mode-specific missing-runtime errors for unexpected function calls', () => {
+    expect(() =>
+      requireCodexFunctionToolExecutor({
+        functionToolExecutor: null,
+        mode: 'headless',
+      }),
+    ).toThrow(buildMissingCodexLocalToolRuntimeMessage('headless'))
+
+    expect(() =>
+      requireCodexFunctionToolExecutor({
+        functionToolExecutor: null,
+        mode: 'repl',
+      }),
+    ).toThrow(buildMissingCodexLocalToolRuntimeMessage('repl'))
   })
 })

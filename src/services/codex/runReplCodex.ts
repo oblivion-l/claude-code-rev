@@ -15,6 +15,7 @@ import { extractCodexFunctionCalls } from './toolBridge.js'
 import {
   CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS,
   prepareCodexToolOrchestration,
+  requireCodexFunctionToolExecutor,
 } from './orchestration.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 import {
@@ -435,13 +436,10 @@ export class CodexReplSession {
 
         const functionCalls = extractCodexFunctionCalls(completedResponse)
         if (functionCalls.length > 0) {
-          if (!functionToolExecutor) {
-            throw new Error(
-              'Codex REPL received a function tool call, but no local tool runtime is available.',
-            )
-          }
-
-          currentInput = await functionToolExecutor.execute(functionCalls)
+          currentInput = await requireCodexFunctionToolExecutor({
+            functionToolExecutor,
+            mode: 'repl',
+          }).execute(functionCalls)
           continue
         }
 

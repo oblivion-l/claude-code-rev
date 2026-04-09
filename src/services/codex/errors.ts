@@ -38,12 +38,14 @@ export function formatCodexApiError({
   model,
   usedStructuredOutput,
   usedMcpTools,
+  usedFunctionTools,
 }: {
   status: number
   body: CodexApiErrorBody
   model: string
   usedStructuredOutput: boolean
   usedMcpTools?: boolean
+  usedFunctionTools?: boolean
 }): string {
   const message = getErrorMessage(body)
   const errorType = body.error?.type
@@ -82,7 +84,7 @@ export function formatCodexApiError({
   }
 
   if (
-    usedMcpTools &&
+    (usedMcpTools || usedFunctionTools) &&
     (
       errorCode === 'unsupported_parameter' ||
       errorParam?.startsWith('tools') ||
@@ -92,6 +94,14 @@ export function formatCodexApiError({
         message.toLowerCase().includes('not supported')
     )
   ) {
+    if (usedMcpTools && usedFunctionTools) {
+      return `Codex tools are not supported for model ${model} or this API parameter set: ${message ?? `HTTP ${status}`}`
+    }
+
+    if (usedFunctionTools) {
+      return `Codex local function tools are not supported for model ${model} or this API parameter set: ${message ?? `HTTP ${status}`}`
+    }
+
     return `Codex MCP tools are not supported for model ${model} or this API parameter set: ${message ?? `HTTP ${status}`}`
   }
 

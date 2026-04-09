@@ -38,6 +38,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-4o-mini',
         usedStructuredOutput: false,
         usedMcpTools: false,
+        usedFunctionTools: false,
       }),
     ).toContain('Codex model gpt-4o-mini is not supported for this request')
   })
@@ -56,6 +57,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: true,
         usedMcpTools: false,
+        usedFunctionTools: false,
       }),
     ).toContain('Codex structured outputs are not supported for model gpt-5-codex')
   })
@@ -73,6 +75,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: true,
         usedMcpTools: false,
+        usedFunctionTools: false,
       }),
     ).toContain('Codex structured output request was rejected by the API for model gpt-5-codex')
   })
@@ -91,8 +94,49 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: false,
         usedMcpTools: true,
+        usedFunctionTools: false,
       }),
     ).toContain('Codex MCP tools are not supported for model gpt-5-codex')
+  })
+
+  it('formats local function tool rejections clearly', () => {
+    expect(
+      formatCodexApiError({
+        status: 400,
+        body: {
+          error: {
+            message: 'Unsupported parameter: tools[0].type',
+            param: 'tools[0].type',
+            code: 'unsupported_parameter',
+          },
+        },
+        model: 'gpt-5-codex',
+        usedStructuredOutput: false,
+        usedMcpTools: false,
+        usedFunctionTools: true,
+      }),
+    ).toContain(
+      'Codex local function tools are not supported for model gpt-5-codex',
+    )
+  })
+
+  it('formats mixed tool rejections generically when MCP and local tools are both enabled', () => {
+    expect(
+      formatCodexApiError({
+        status: 400,
+        body: {
+          error: {
+            message: 'Unsupported parameter: tools[0].type',
+            param: 'tools[0].type',
+            code: 'unsupported_parameter',
+          },
+        },
+        model: 'gpt-5-codex',
+        usedStructuredOutput: false,
+        usedMcpTools: true,
+        usedFunctionTools: true,
+      }),
+    ).toContain('Codex tools are not supported for model gpt-5-codex')
   })
 
   it('falls back to a generic API error when no special case matches', () => {
@@ -107,6 +151,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: false,
         usedMcpTools: false,
+        usedFunctionTools: false,
       }),
     ).toBe('Codex API error (429): Rate limit exceeded')
   })

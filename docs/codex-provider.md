@@ -257,6 +257,11 @@ API 侧 schema 拒绝或不支持关键字
 - 说明该 MCP 服务依赖本地认证或请求改写能力。
 - 当前 Codex REPL 只支持直接透传的远程 MCP 配置，不支持本地认证辅助逻辑。
 
+`Codex local function tools are not supported for model ... or this API parameter set`
+
+- 说明请求里启用了 Codex 本地 function tools，但 API 明确拒绝了 `tools` 参数或对应能力组合。
+- 这通常表示当前模型或当前 Responses API 参数组合不支持本地 function tools。
+
 ## 回滚方式
 
 如果想回到之前的默认行为，直接关闭特性开关：

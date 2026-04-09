@@ -1,6 +1,6 @@
 import type {
-  CodexResponseInput,
   CodexRequestTool,
+  CodexResponseInput,
   CodexRuntimeConfig,
   CodexStreamEvent,
   CodexStructuredOutputFormat,
@@ -9,20 +9,22 @@ import {
   formatCodexApiError,
   tryParseCodexApiErrorBody,
 } from './errors.js'
+import { summarizeCodexRequestTooling } from './orchestration.js'
 
 async function buildHttpError({
   response,
   model,
   usedStructuredOutput,
-  usedMcpTools,
+  tools,
 }: {
   response: Response
   model: string
   usedStructuredOutput: boolean
-  usedMcpTools: boolean
+  tools?: CodexRequestTool[]
 }): Promise<Error> {
   const bodyText = await response.text()
   const parsed = tryParseCodexApiErrorBody(bodyText)
+  const toolingUsage = summarizeCodexRequestTooling(tools ?? [])
 
   if (parsed) {
     return new Error(
@@ -31,7 +33,8 @@ async function buildHttpError({
         body: parsed,
         model,
         usedStructuredOutput,
-        usedMcpTools,
+        usedMcpTools: toolingUsage.usedMcpTools,
+        usedFunctionTools: toolingUsage.usedFunctionTools,
       }),
     )
   }
@@ -101,7 +104,7 @@ export async function createCodexResponseStream({
       response,
       model: config.model,
       usedStructuredOutput: Boolean(structuredOutputFormat),
-      usedMcpTools: Boolean(tools?.length),
+      tools,
     })
   }
 

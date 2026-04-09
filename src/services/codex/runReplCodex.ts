@@ -11,12 +11,11 @@ import type {
 } from 'src/services/repl/provider.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
 import type { NonNullableUsage } from 'src/entrypoints/sdk/sdkUtilityTypes.js'
+import { extractCodexFunctionCalls } from './toolBridge.js'
 import {
-  createCodexFunctionToolExecutor,
-  extractCodexFunctionCalls,
-  mapCodexFunctionTools,
-  selectCodexFunctionTools,
-} from './toolBridge.js'
+  CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS,
+  prepareCodexToolOrchestration,
+} from './orchestration.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 import {
   createCodexResponseStream,
@@ -359,30 +358,15 @@ export class CodexReplSession {
     }
 
     const { abortController, cleanup } = createForwardingAbortController(signal)
-    const functionEnabledTools = this.options.runtime
-      ? selectCodexFunctionTools(this.options.runtime.tools)
-      : []
-    const functionTools =
-      this.options.runtime && functionEnabledTools.length > 0
-        ? await mapCodexFunctionTools({
-            tools: functionEnabledTools,
-            runtime: this.options.runtime,
-            model: this.config.model,
-          })
-        : []
-    const requestTools = [
-      ...(this.options.mcpTools ?? []),
-      ...functionTools,
-    ]
-    const functionToolExecutor =
-      this.options.runtime && functionEnabledTools.length > 0
-        ? createCodexFunctionToolExecutor({
-            runtime: this.options.runtime,
-            tools: functionEnabledTools,
-            model: this.config.model,
-            abortController,
-          })
-        : null
+    const {
+      requestTools,
+      functionToolExecutor,
+    } = await prepareCodexToolOrchestration({
+      runtime: this.options.runtime,
+      mcpTools: this.options.mcpTools,
+      model: this.config.model,
+      abortController,
+    })
 
     let accumulatedText = ''
     let responseId: string | undefined
@@ -396,7 +380,11 @@ export class CodexReplSession {
     let completedFinalRound = false
 
     try {
-      for (let round = 0; round < 8; round += 1) {
+      for (
+        let round = 0;
+        round < CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS;
+        round += 1
+      ) {
         const response = await createCodexResponseStream({
           config: this.config,
           input: currentInput,

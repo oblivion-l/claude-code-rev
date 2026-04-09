@@ -277,4 +277,6 @@ provider 具体实现位于 `src/services/codex`。
 
 其中本地工具执行的共享 runtime 定义位于 `src/services/codex/toolRuntime.ts`。
 
+远程 MCP 与本地 function tools 的共享装配层位于 `src/services/codex/orchestration.ts`。
+
 这样可以把改动限制在隔离区域内，后续继续扩展时不需要一次性重写整条查询链路。

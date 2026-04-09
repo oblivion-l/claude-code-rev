@@ -31,11 +31,12 @@ import {
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
 import {
-  createCodexFunctionToolExecutor,
   extractCodexFunctionCalls,
-  mapCodexFunctionTools,
-  selectCodexFunctionTools,
 } from './toolBridge.js'
+import {
+  CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS,
+  prepareCodexToolOrchestration,
+} from './orchestration.js'
 import {
   compileCodexJsonSchema,
   type CompiledCodexJsonSchema,
@@ -219,17 +220,6 @@ export async function runHeadlessCodex({
   }
 
   const config = getCodexRuntimeConfig(options.userSpecifiedModel)
-  const functionEnabledTools = runtime
-    ? selectCodexFunctionTools(runtime.tools)
-    : []
-  const functionTools =
-    runtime && functionEnabledTools.length > 0
-      ? await mapCodexFunctionTools({
-          tools: functionEnabledTools,
-          runtime,
-          model: config.model,
-        })
-      : []
   let compiledSchema: CompiledCodexJsonSchema | undefined
   if (options.jsonSchema) {
     if (!providerSupportsStructuredOutput(provider)) {
@@ -284,15 +274,14 @@ export async function runHeadlessCodex({
   const abortController = new AbortController()
   const sigintHandler = () => abortController.abort()
   process.on('SIGINT', sigintHandler)
-  const functionToolExecutor =
-    runtime && functionEnabledTools.length > 0
-      ? createCodexFunctionToolExecutor({
-          runtime,
-          tools: functionEnabledTools,
-          model: config.model,
-          abortController,
-        })
-      : null
+  const {
+    requestTools,
+    functionToolExecutor,
+  } = await prepareCodexToolOrchestration({
+    runtime,
+    model: config.model,
+    abortController,
+  })
 
   let accumulatedText = ''
   let usage: NonNullableUsage = EMPTY_USAGE
@@ -317,14 +306,14 @@ export async function runHeadlessCodex({
       continuationCheck.conversationState?.lastResponseId
     let completedFinalRound = false
 
-    for (let round = 0; round < 8; round += 1) {
+    for (let round = 0; round < CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS; round += 1) {
       const response = await createCodexResponseStream({
         config,
         input: currentInput,
         instructions,
         previousResponseId,
         structuredOutputFormat: compiledSchema?.format,
-        tools: functionTools.length > 0 ? functionTools : undefined,
+        tools: requestTools.length > 0 ? requestTools : undefined,
         signal: abortController.signal,
       })
 

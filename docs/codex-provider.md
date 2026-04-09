@@ -294,4 +294,6 @@ provider 具体实现位于 `src/services/codex`。
 
 远程 MCP 与本地 function tools 的共享装配层位于 `src/services/codex/orchestration.ts`。
 
+请求级工具策略决策层位于 `src/services/codex/requestPolicy.ts`。
+
 这样可以把改动限制在隔离区域内，后续继续扩展时不需要一次性重写整条查询链路。

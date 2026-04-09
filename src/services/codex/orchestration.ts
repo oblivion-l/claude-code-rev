@@ -4,10 +4,11 @@ import {
   selectCodexFunctionTools,
   type CodexFunctionToolExecutor,
 } from './toolBridge.js'
+import type { CodexToolingMode } from './capabilities.js'
 import {
-  assertCodexToolingRequestSupported,
-  type CodexToolingMode,
-} from './capabilities.js'
+  resolveCodexToolingRequestPlan,
+  type CodexToolingRequestPlan,
+} from './requestPolicy.js'
 import type { CodexMcpTool, CodexRequestTool } from './types.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 
@@ -19,6 +20,7 @@ export type CodexToolingUsage = {
 }
 
 export type CodexToolOrchestration = {
+  requestPlan: CodexToolingRequestPlan
   requestTools: CodexRequestTool[]
   functionToolExecutor: CodexFunctionToolExecutor | null
   toolingUsage: CodexToolingUsage
@@ -59,13 +61,14 @@ export async function prepareCodexToolOrchestration(args: {
   model: string
   abortController: AbortController
 }): Promise<CodexToolOrchestration> {
-  assertCodexToolingRequestSupported({
+  const requestPlan = resolveCodexToolingRequestPlan({
     mode: args.mode,
     runtime: args.runtime,
     mcpTools: args.mcpTools,
   })
 
-  const functionEnabledTools = args.runtime
+  const functionEnabledTools =
+    requestPlan.enabled.localFunctionTools && args.runtime
     ? selectCodexFunctionTools(args.runtime.tools)
     : []
   const functionTools =
@@ -77,11 +80,16 @@ export async function prepareCodexToolOrchestration(args: {
         })
       : []
 
+  const requestTools = [
+    ...(requestPlan.enabled.remoteMcpTools
+      ? (args.mcpTools ?? [])
+      : []),
+    ...functionTools,
+  ]
+
   return {
-    requestTools: [
-      ...(args.mcpTools ?? []),
-      ...functionTools,
-    ],
+    requestPlan,
+    requestTools,
     functionToolExecutor:
       args.runtime && functionEnabledTools.length > 0
         ? createCodexFunctionToolExecutor({
@@ -91,9 +99,6 @@ export async function prepareCodexToolOrchestration(args: {
             abortController: args.abortController,
           })
         : null,
-    toolingUsage: summarizeCodexRequestTooling([
-      ...(args.mcpTools ?? []),
-      ...functionTools,
-    ]),
+    toolingUsage: summarizeCodexRequestTooling(requestTools),
   }
 }

@@ -126,6 +126,10 @@ describe('prepareCodexToolOrchestration', () => {
       }),
     ])
     expect(orchestration.functionToolExecutor).not.toBeNull()
+    expect(orchestration.requestPlan.enabled).toEqual({
+      remoteMcpTools: true,
+      localFunctionTools: true,
+    })
   })
 
   it('keeps MCP-only requests valid when no local runtime is present', async () => {
@@ -150,6 +154,11 @@ describe('prepareCodexToolOrchestration', () => {
       },
     ])
     expect(orchestration.functionToolExecutor).toBeNull()
+    expect(orchestration.requestPlan.requested).toEqual({
+      remoteMcpTools: true,
+      localFunctionTools: false,
+      mixedTooling: false,
+    })
   })
 
   it('returns mode-specific missing-runtime errors for unexpected function calls', () => {

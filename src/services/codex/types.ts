@@ -19,7 +19,28 @@ export type CodexMcpTool = {
   server_url: string
 }
 
-export type CodexRequestTool = CodexMcpTool
+export type CodexFunctionTool = {
+  type: 'function'
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+export type CodexFunctionCall = {
+  name: string
+  callId: string
+  argumentsText: string
+}
+
+export type CodexFunctionCallOutput = {
+  type: 'function_call_output'
+  call_id: string
+  output: string
+}
+
+export type CodexRequestTool = CodexMcpTool | CodexFunctionTool
+
+export type CodexResponseInput = string | CodexFunctionCallOutput[]
 
 export type CodexStreamEvent = {
   type: string

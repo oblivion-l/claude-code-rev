@@ -1,4 +1,5 @@
 import type {
+  CodexResponseInput,
   CodexRequestTool,
   CodexRuntimeConfig,
   CodexStreamEvent,
@@ -49,7 +50,7 @@ export async function createCodexResponseStream({
   signal,
 }: {
   config: CodexRuntimeConfig
-  input: string
+  input: CodexResponseInput
   instructions?: string
   previousResponseId?: string
   structuredOutputFormat?: CodexStructuredOutputFormat

@@ -5,6 +5,7 @@ import type {
   HeadlessConversationState,
   HeadlessProvider,
   HeadlessProviderOptions,
+  HeadlessProviderRuntime,
 } from 'src/services/headless/provider.js'
 import {
   checkProviderContinuationSupport,
@@ -29,6 +30,12 @@ import {
   parseCodexSSE,
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
+import {
+  createCodexFunctionToolExecutor,
+  extractCodexFunctionCalls,
+  mapCodexFunctionTools,
+  selectCodexFunctionTools,
+} from './toolBridge.js'
 import {
   compileCodexJsonSchema,
   type CompiledCodexJsonSchema,
@@ -149,16 +156,29 @@ function buildStructuredOutputEvent({
   }
 }
 
+function accumulateCodexUsage(
+  totalUsage: NonNullableUsage,
+  roundUsage: NonNullableUsage,
+): NonNullableUsage {
+  return {
+    ...totalUsage,
+    input_tokens: totalUsage.input_tokens + roundUsage.input_tokens,
+    output_tokens: totalUsage.output_tokens + roundUsage.output_tokens,
+  }
+}
+
 export async function runHeadlessCodex({
   inputPrompt,
   structuredIO,
   options,
   conversationState,
+  runtime,
 }: {
   inputPrompt: string | AsyncIterable<string>
   structuredIO: StructuredIO
   options: HeadlessProviderOptions
   conversationState?: HeadlessConversationState | null
+  runtime?: HeadlessProviderRuntime
 }): Promise<{ exitCode: number; conversationState?: HeadlessConversationState | null }> {
   const provider = createCodexHeadlessProvider()
   const continuationCheck = checkProviderContinuationSupport(
@@ -199,6 +219,17 @@ export async function runHeadlessCodex({
   }
 
   const config = getCodexRuntimeConfig(options.userSpecifiedModel)
+  const functionEnabledTools = runtime
+    ? selectCodexFunctionTools(runtime.tools)
+    : []
+  const functionTools =
+    runtime && functionEnabledTools.length > 0
+      ? await mapCodexFunctionTools({
+          tools: functionEnabledTools,
+          runtime,
+          model: config.model,
+        })
+      : []
   let compiledSchema: CompiledCodexJsonSchema | undefined
   if (options.jsonSchema) {
     if (!providerSupportsStructuredOutput(provider)) {
@@ -253,6 +284,15 @@ export async function runHeadlessCodex({
   const abortController = new AbortController()
   const sigintHandler = () => abortController.abort()
   process.on('SIGINT', sigintHandler)
+  const functionToolExecutor =
+    runtime && functionEnabledTools.length > 0
+      ? createCodexFunctionToolExecutor({
+          runtime,
+          tools: functionEnabledTools,
+          model: config.model,
+          abortController,
+        })
+      : null
 
   let accumulatedText = ''
   let usage: NonNullableUsage = EMPTY_USAGE
@@ -272,48 +312,54 @@ export async function runHeadlessCodex({
         }
 
   try {
-    const response = await createCodexResponseStream({
-      config,
-      input: prompt,
-      instructions,
-      previousResponseId: continuationCheck.conversationState?.lastResponseId,
-      structuredOutputFormat: compiledSchema?.format,
-      signal: abortController.signal,
-    })
+    let currentInput: string | Array<{ type: 'function_call_output'; call_id: string; output: string }> = prompt
+    let previousResponseId =
+      continuationCheck.conversationState?.lastResponseId
+    let completedFinalRound = false
 
-    for await (const event of parseCodexSSE(response.body!)) {
-      const failureMessage = getCodexFailureMessage(event)
-      if (failureMessage) {
-        throw new Error(failureMessage)
-      }
+    for (let round = 0; round < 8; round += 1) {
+      const response = await createCodexResponseStream({
+        config,
+        input: currentInput,
+        instructions,
+        previousResponseId,
+        structuredOutputFormat: compiledSchema?.format,
+        tools: functionTools.length > 0 ? functionTools : undefined,
+        signal: abortController.signal,
+      })
 
-      const delta = extractTextDelta(event)
-      if (delta) {
-        accumulatedText += delta
+      let roundText = ''
+      const roundDeltas: string[] = []
+      let completedResponse: unknown
 
-        if (options.outputFormat === 'stream-json') {
-          await structuredIO.write(buildStreamEvent(delta))
-        } else if (options.outputFormat !== 'json' && !compiledSchema) {
-          writeToStdout(delta)
+      for await (const event of parseCodexSSE(response.body!)) {
+        const failureMessage = getCodexFailureMessage(event)
+        if (failureMessage) {
+          throw new Error(failureMessage)
         }
-      }
 
-      const completedResponse = extractCompletedResponse(event)
-      if (completedResponse) {
-        const responseId = extractResponseId(completedResponse)
-        const completedText = extractResponseText(completedResponse)
-        if (completedText && !accumulatedText) {
-          accumulatedText = completedText
-          if (
-            options.outputFormat !== 'json' &&
-            options.outputFormat !== 'stream-json' &&
-            !compiledSchema
-          ) {
-            writeToStdout(completedText)
-          }
+        const delta = extractTextDelta(event)
+        if (delta) {
+          roundText += delta
+          roundDeltas.push(delta)
         }
-        usage = extractUsage(completedResponse)
+
+        const completed = extractCompletedResponse(event)
+        if (!completed) {
+          continue
+        }
+
+        completedResponse = completed
+        const responseId = extractResponseId(completed)
+        const completedText = extractResponseText(completed)
+        if (completedText && !roundText) {
+          roundText = completedText
+        }
+
+        usage = accumulateCodexUsage(usage, extractUsage(completed))
+
         if (responseId) {
+          previousResponseId = responseId
           responseIdForConversationState = responseId
           nextConversationState = {
             ...(nextConversationState ?? {}),
@@ -322,6 +368,46 @@ export async function runHeadlessCodex({
           }
         }
       }
+
+      const functionCalls = extractCodexFunctionCalls(completedResponse)
+      if (functionCalls.length > 0) {
+        if (!functionToolExecutor) {
+          throw new Error(
+            'Codex provider received a function tool call, but no local tool runtime is available.',
+          )
+        }
+
+        currentInput = await functionToolExecutor.execute(functionCalls)
+        continue
+      }
+
+      accumulatedText = roundText
+      completedFinalRound = true
+      if (options.outputFormat === 'stream-json') {
+        for (const delta of roundDeltas) {
+          await structuredIO.write(buildStreamEvent(delta))
+        }
+      } else if (options.outputFormat !== 'json' && !compiledSchema) {
+        if (roundDeltas.length > 0) {
+          for (const delta of roundDeltas) {
+            writeToStdout(delta)
+          }
+        } else if (roundText) {
+          writeToStdout(roundText)
+        }
+      }
+
+      break
+    }
+
+    if (!completedFinalRound) {
+      throw new Error(
+        'Codex provider exceeded the maximum local tool-call rounds for a single --print request.',
+      )
+    }
+
+    if (!accumulatedText && !responseIdForConversationState) {
+      throw new Error('Codex response completed without text or tool output')
     }
 
     let structuredOutput: unknown

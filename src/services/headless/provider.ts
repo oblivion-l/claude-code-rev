@@ -1,4 +1,10 @@
 import type { StructuredIO } from 'src/cli/structuredIO.js'
+import type { Command } from 'src/commands.js'
+import type { CanUseToolFn } from 'src/hooks/useCanUseTool.js'
+import type { AppState } from 'src/state/AppState.js'
+import type { Tools } from 'src/Tool.js'
+import type { AgentDefinition } from 'src/tools/AgentTool/loadAgentsDir.js'
+import type { MCPServerConnection } from 'src/services/mcp/types.js'
 
 export const HEADLESS_PROVIDER_ERROR_PREFIX = 'HEADLESS_PROVIDER'
 export const HEADLESS_CONVERSATION_STATE_VERSION = 1
@@ -52,6 +58,7 @@ export type HeadlessProviderRunArgs = {
   structuredIO: StructuredIO
   options: HeadlessProviderOptions
   conversationState?: HeadlessConversationState | null
+  runtime?: HeadlessProviderRuntime
 }
 
 export type HeadlessProviderRunResult = {
@@ -64,6 +71,17 @@ export type HeadlessProviderCapabilities = {
   supportsResume: boolean
   supportsStructuredOutput: boolean
   supportsConversationState: boolean
+}
+
+export type HeadlessProviderRuntime = {
+  cwd: string
+  commands: Command[]
+  tools: Tools
+  mcpClients: MCPServerConnection[]
+  agents: AgentDefinition[]
+  canUseTool: CanUseToolFn
+  getAppState: () => AppState
+  setAppState: (f: (prev: AppState) => AppState) => void
 }
 
 export type HeadlessProviderMetadata = {

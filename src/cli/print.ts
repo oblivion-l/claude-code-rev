@@ -802,6 +802,45 @@ export async function runHeadless(
     return
   }
 
+  // Filter out MCP tools that are in the deny list
+  const allowedMcpTools = filterToolsByDenyRules(
+    appState.mcp.tools,
+    appState.toolPermissionContext,
+  )
+  let filteredTools = [...tools, ...allowedMcpTools]
+
+  // When using SDK URL, always use stdio permission prompting to delegate to the SDK
+  const effectivePermissionPromptToolName = options.sdkUrl
+    ? 'stdio'
+    : options.permissionPromptToolName
+
+  // Callback for when a permission prompt is shown
+  const onPermissionPrompt = (details: RequiresActionDetails) => {
+    if (feature('COMMIT_ATTRIBUTION')) {
+      setAppState(prev => ({
+        ...prev,
+        attribution: {
+          ...prev.attribution,
+          permissionPromptCount: prev.attribution.permissionPromptCount + 1,
+        },
+      }))
+    }
+    notifySessionStateChanged('requires_action', details)
+  }
+
+  const canUseTool = getCanUseToolFn(
+    effectivePermissionPromptToolName,
+    structuredIO,
+    () => getAppState().mcp.tools,
+    onPermissionPrompt,
+  )
+  if (options.permissionPromptToolName) {
+    // Remove the permission prompt tool from the list of available tools.
+    filteredTools = filteredTools.filter(
+      tool => !toolMatchesName(tool, options.permissionPromptToolName!),
+    )
+  }
+
   const headlessProvider = resolveHeadlessProvider()
   if (headlessProvider) {
     registerProcessOutputErrorHandlers()
@@ -860,6 +899,16 @@ export async function runHeadless(
           agent: options.agent,
         },
         conversationState,
+        runtime: {
+          cwd: process.cwd(),
+          commands: [...commands, ...appState.mcp.commands],
+          tools: filteredTools,
+          mcpClients: appState.mcp.clients,
+          agents,
+          canUseTool,
+          getAppState,
+          setAppState,
+        },
       })
 
     if (nextConversationState) {
@@ -873,45 +922,6 @@ export async function runHeadless(
     }
     gracefulShutdownSync(exitCode)
     return
-  }
-
-  // Filter out MCP tools that are in the deny list
-  const allowedMcpTools = filterToolsByDenyRules(
-    appState.mcp.tools,
-    appState.toolPermissionContext,
-  )
-  let filteredTools = [...tools, ...allowedMcpTools]
-
-  // When using SDK URL, always use stdio permission prompting to delegate to the SDK
-  const effectivePermissionPromptToolName = options.sdkUrl
-    ? 'stdio'
-    : options.permissionPromptToolName
-
-  // Callback for when a permission prompt is shown
-  const onPermissionPrompt = (details: RequiresActionDetails) => {
-    if (feature('COMMIT_ATTRIBUTION')) {
-      setAppState(prev => ({
-        ...prev,
-        attribution: {
-          ...prev.attribution,
-          permissionPromptCount: prev.attribution.permissionPromptCount + 1,
-        },
-      }))
-    }
-    notifySessionStateChanged('requires_action', details)
-  }
-
-  const canUseTool = getCanUseToolFn(
-    effectivePermissionPromptToolName,
-    structuredIO,
-    () => getAppState().mcp.tools,
-    onPermissionPrompt,
-  )
-  if (options.permissionPromptToolName) {
-    // Remove the permission prompt tool from the list of available tools.
-    filteredTools = filteredTools.filter(
-      tool => !toolMatchesName(tool, options.permissionPromptToolName!),
-    )
   }
 
   // Install errors handlers to gracefully handle broken pipes (e.g., when parent process dies)

@@ -6,28 +6,85 @@ export type CodexModelPolicy = {
   supportsMixedTooling: boolean
 }
 
-const STRUCTURED_OUTPUT_MODEL_PREFIXES = [
-  'gpt-5-codex',
-  'gpt-5.1-codex',
-  'gpt-5.1-codex-max',
-  'gpt-5.2-codex',
-  'gpt-5.3-codex',
-  'gpt-5.4',
-  'gpt-5',
-] as const
+type CodexModelPolicyOverride = {
+  matchPrefix: string
+  override: Partial<Omit<CodexModelPolicy, 'model'>>
+}
+
+const DEFAULT_CODEX_MODEL_POLICY: Omit<CodexModelPolicy, 'model'> = {
+  supportsStructuredOutput: false,
+  supportsRemoteMcpTools: true,
+  supportsLocalFunctionTools: true,
+  supportsMixedTooling: true,
+}
+
+const CODEX_MODEL_POLICY_OVERRIDES: CodexModelPolicyOverride[] = [
+  {
+    matchPrefix: 'gpt-5-codex',
+    override: {
+      supportsStructuredOutput: true,
+    },
+  },
+  {
+    matchPrefix: 'gpt-5.1-codex',
+    override: {
+      supportsStructuredOutput: true,
+    },
+  },
+  {
+    matchPrefix: 'gpt-5.1-codex-max',
+    override: {
+      supportsStructuredOutput: true,
+    },
+  },
+  {
+    matchPrefix: 'gpt-5.2-codex',
+    override: {
+      supportsStructuredOutput: true,
+    },
+  },
+  {
+    matchPrefix: 'gpt-5.3-codex',
+    override: {
+      supportsStructuredOutput: true,
+    },
+  },
+  {
+    matchPrefix: 'gpt-5.4',
+    override: {
+      supportsStructuredOutput: true,
+    },
+  },
+  {
+    matchPrefix: 'gpt-5',
+    override: {
+      supportsStructuredOutput: true,
+    },
+  },
+]
+
+export function getCodexModelPolicyOverrides(): CodexModelPolicyOverride[] {
+  return [...CODEX_MODEL_POLICY_OVERRIDES]
+}
+
+function resolveCodexModelPolicyOverride(
+  model: string,
+): Partial<Omit<CodexModelPolicy, 'model'>> {
+  return (
+    CODEX_MODEL_POLICY_OVERRIDES.find(override =>
+      model.startsWith(override.matchPrefix),
+    )?.override ?? {}
+  )
+}
 
 export function modelSupportsCodexStructuredOutput(model: string): boolean {
-  return STRUCTURED_OUTPUT_MODEL_PREFIXES.some(prefix =>
-    model.startsWith(prefix),
-  )
+  return getCodexModelPolicy(model).supportsStructuredOutput
 }
 
 export function getCodexModelPolicy(model: string): CodexModelPolicy {
   return {
     model,
-    supportsStructuredOutput: modelSupportsCodexStructuredOutput(model),
-    supportsRemoteMcpTools: true,
-    supportsLocalFunctionTools: true,
-    supportsMixedTooling: true,
+    ...DEFAULT_CODEX_MODEL_POLICY,
+    ...resolveCodexModelPolicyOverride(model),
   }
 }

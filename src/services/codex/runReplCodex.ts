@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { createInterface } from 'readline/promises'
 import { getSessionId } from 'src/bootstrap/state.js'
+import { hasPermissionsToUseTool } from 'src/utils/permissions/permissions.js'
 import { gracefulShutdown } from 'src/utils/gracefulShutdown.js'
 import { errorMessage, isAbortError } from 'src/utils/errors.js'
 import type { Props as REPLProps } from 'src/screens/REPL.js'
@@ -10,6 +11,13 @@ import type {
 } from 'src/services/repl/provider.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
 import type { NonNullableUsage } from 'src/entrypoints/sdk/sdkUtilityTypes.js'
+import {
+  createCodexFunctionToolExecutor,
+  extractCodexFunctionCalls,
+  mapCodexFunctionTools,
+  selectCodexFunctionTools,
+} from './toolBridge.js'
+import type { CodexToolRuntime } from './toolRuntime.js'
 import {
   createCodexResponseStream,
   parseCodexSSE,
@@ -59,6 +67,67 @@ export type CodexReplTurnResult = {
   responseId?: string
   usage: NonNullableUsage
   conversationState: CodexReplConversationState
+}
+
+function accumulateCodexUsage(
+  totalUsage: NonNullableUsage,
+  roundUsage: NonNullableUsage,
+): NonNullableUsage {
+  return {
+    ...totalUsage,
+    input_tokens: totalUsage.input_tokens + roundUsage.input_tokens,
+    output_tokens: totalUsage.output_tokens + roundUsage.output_tokens,
+  }
+}
+
+function createForwardingAbortController(signal?: AbortSignal): {
+  abortController: AbortController
+  cleanup: () => void
+} {
+  const abortController = new AbortController()
+
+  if (!signal) {
+    return {
+      abortController,
+      cleanup: () => {},
+    }
+  }
+
+  if (signal.aborted) {
+    abortController.abort()
+    return {
+      abortController,
+      cleanup: () => {},
+    }
+  }
+
+  const handleAbort = () => abortController.abort()
+  signal.addEventListener('abort', handleAbort, { once: true })
+
+  return {
+    abortController,
+    cleanup: () => signal.removeEventListener('abort', handleAbort),
+  }
+}
+
+function createCodexReplToolRuntime({
+  replProps,
+  appProps,
+}: ReplProviderLaunchArgs): CodexToolRuntime {
+  let appState = appProps.initialState
+
+  return {
+    cwd: replProps.providerContext?.cwd ?? process.cwd(),
+    commands: replProps.commands,
+    tools: replProps.initialTools,
+    mcpClients: replProps.mcpClients ?? [],
+    agents: appProps.initialState.agentDefinitions.activeAgents,
+    canUseTool: hasPermissionsToUseTool,
+    getAppState: () => appState,
+    setAppState: updater => {
+      appState = updater(appState)
+    },
+  }
 }
 
 function buildInstructions({
@@ -247,6 +316,7 @@ export class CodexReplSession {
       appendSystemPrompt?: string
       cwd?: string
       mcpTools?: CodexMcpTool[]
+      runtime?: CodexToolRuntime
       conversationState?: CodexReplConversationState | null
     } = {},
   ) {
@@ -288,46 +358,122 @@ export class CodexReplSession {
       throw new Error('Prompt must not be empty.')
     }
 
-    const response = await createCodexResponseStream({
-      config: this.config,
-      input: prompt,
-      instructions: this.instructions,
-      previousResponseId: this.conversationState.lastResponseId,
-      tools: this.options.mcpTools,
-      signal,
-    })
+    const { abortController, cleanup } = createForwardingAbortController(signal)
+    const functionEnabledTools = this.options.runtime
+      ? selectCodexFunctionTools(this.options.runtime.tools)
+      : []
+    const functionTools =
+      this.options.runtime && functionEnabledTools.length > 0
+        ? await mapCodexFunctionTools({
+            tools: functionEnabledTools,
+            runtime: this.options.runtime,
+            model: this.config.model,
+          })
+        : []
+    const requestTools = [
+      ...(this.options.mcpTools ?? []),
+      ...functionTools,
+    ]
+    const functionToolExecutor =
+      this.options.runtime && functionEnabledTools.length > 0
+        ? createCodexFunctionToolExecutor({
+            runtime: this.options.runtime,
+            tools: functionEnabledTools,
+            model: this.config.model,
+            abortController,
+          })
+        : null
 
     let accumulatedText = ''
     let responseId: string | undefined
     let usage: NonNullableUsage = EMPTY_USAGE
+    let currentInput: string | Array<{
+      type: 'function_call_output'
+      call_id: string
+      output: string
+    }> = prompt
+    let previousResponseId = this.conversationState.lastResponseId
+    let completedFinalRound = false
 
-    for await (const event of parseCodexSSE(response.body!)) {
-      const failureMessage = getCodexFailureMessage(event)
-      if (failureMessage) {
-        throw new Error(failureMessage)
-      }
+    try {
+      for (let round = 0; round < 8; round += 1) {
+        const response = await createCodexResponseStream({
+          config: this.config,
+          input: currentInput,
+          instructions: this.instructions,
+          previousResponseId,
+          tools: requestTools.length > 0 ? requestTools : undefined,
+          signal: abortController.signal,
+        })
 
-      const delta = extractTextDelta(event)
-      if (delta) {
-        accumulatedText += delta
-        yield {
-          type: 'assistant.delta',
-          delta,
+        let roundText = ''
+        let roundResponseId: string | undefined
+        let completedResponse: unknown
+
+        for await (const event of parseCodexSSE(response.body!)) {
+          const failureMessage = getCodexFailureMessage(event)
+          if (failureMessage) {
+            throw new Error(failureMessage)
+          }
+
+          const delta = extractTextDelta(event)
+          if (delta) {
+            roundText += delta
+            yield {
+              type: 'assistant.delta',
+              delta,
+            }
+          }
+
+          const completed = extractCompletedResponse(event)
+          if (!completed) {
+            continue
+          }
+
+          completedResponse = completed
+          roundResponseId = extractResponseId(completed)
+
+          const completedText = extractResponseText(completed)
+          if (completedText && !roundText) {
+            roundText = completedText
+          }
+
+          usage = accumulateCodexUsage(usage, extractUsage(completed))
         }
-      }
 
-      const completedResponse = extractCompletedResponse(event)
-      if (!completedResponse) {
-        continue
-      }
+        if (roundResponseId) {
+          previousResponseId = roundResponseId
+        }
 
-      const completedText = extractResponseText(completedResponse)
-      if (completedText && !accumulatedText) {
-        accumulatedText = completedText
-      }
+        const functionCalls = extractCodexFunctionCalls(completedResponse)
+        if (functionCalls.length > 0) {
+          if (!functionToolExecutor) {
+            throw new Error(
+              'Codex REPL received a function tool call, but no local tool runtime is available.',
+            )
+          }
 
-      responseId = extractResponseId(completedResponse)
-      usage = extractUsage(completedResponse)
+          currentInput = await functionToolExecutor.execute(functionCalls)
+          continue
+        }
+
+        accumulatedText = roundText
+        responseId = roundResponseId
+        completedFinalRound = true
+        break
+      }
+    } finally {
+      cleanup()
+    }
+
+    if (!completedFinalRound) {
+      throw new Error(
+        'Codex REPL exceeded the maximum local tool-call rounds for a single prompt.',
+      )
+    }
+
+    if (!accumulatedText && !responseId) {
+      throw new Error('Codex REPL completed without text or tool output.')
     }
 
     const assistantMessageUuid = responseId ? randomUUID() : undefined
@@ -367,14 +513,16 @@ export function createCodexReplSession(options?: {
   appendSystemPrompt?: string
   cwd?: string
   mcpTools?: CodexMcpTool[]
+  runtime?: CodexToolRuntime
   conversationState?: CodexReplConversationState | null
 }): CodexReplSession {
   return new CodexReplSession(options)
 }
 
-export async function runCodexRepl({
-  replProps,
-}: ReplProviderLaunchArgs): Promise<number> {
+export async function runCodexRepl(
+  args: ReplProviderLaunchArgs,
+): Promise<number> {
+  const { replProps } = args
   const unsupportedMessage = getUnsupportedCodexReplMessage(replProps)
   if (unsupportedMessage) {
     writeError(unsupportedMessage)
@@ -398,6 +546,7 @@ export async function runCodexRepl({
       appendSystemPrompt: replProps.appendSystemPrompt,
       cwd: replProps.providerContext?.cwd,
       mcpTools,
+      runtime: createCodexReplToolRuntime(args),
       conversationState: initialConversationState,
     })
   } catch (error) {
@@ -457,6 +606,7 @@ export async function runCodexRepl({
       try {
         const iterator = session.submitTurn(prompt, abortController.signal)
         let result: CodexReplTurnResult | undefined
+        let streamedText = ''
 
         for (;;) {
           const next = await iterator.next()
@@ -466,8 +616,13 @@ export async function runCodexRepl({
           }
 
           if (next.value.type === 'assistant.delta') {
+            streamedText += next.value.delta
             process.stdout.write(next.value.delta)
           }
+        }
+
+        if (!streamedText && result?.responseText) {
+          process.stdout.write(result.responseText)
         }
 
         if (!result?.responseText.endsWith('\n')) {

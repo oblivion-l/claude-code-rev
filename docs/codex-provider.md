@@ -22,6 +22,7 @@
 - headless `--resume --resume-session-at <assistant-message-uuid>`
 - headless `--print` 下最小本地开发工具闭环
 - Codex REPL 文本多轮
+- Codex REPL 下最小本地开发工具闭环
 - Codex REPL 的同进程 `--continue`
 - Codex REPL 的持久化 `--resume <state-id>` / `--resume-session-at`
 - Codex REPL 下最小 MCP 直连
@@ -53,6 +54,15 @@
 - 继续复用现有权限检查与工具执行逻辑
 - 不开放 Agent、REPL slash command、交互式本地 JSX 工具
 - 不保证与 Anthropic 路径的全部工具编排能力完全对齐
+
+当前 REPL 本地工具仅支持以下范围：
+
+- 仅在 `CLAUDE_CODE_USE_CODEX=1` 的 Codex REPL 路径启用
+- 与 headless 共享同一套 Codex local function tool runtime
+- 当前只开放高价值本地开发工具：`Read`、`Glob`、`Grep`、`Write`、`Edit`、`Bash`、`PowerShell`
+- 继续复用仓库现有工具 schema、权限检查和工具执行逻辑
+- 不接 REPL slash command 工具流，不开放 Agent 工具编排
+- 与远程 MCP 透传保持并列关系，不合并成新的 orchestration 协议
 
 不支持的组合会直接 fail-fast，返回明确错误，而不是静默回退到其他路径。
 

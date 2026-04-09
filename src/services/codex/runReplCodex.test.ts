@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { z } from 'zod/v4'
+import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
 import {
   createCodexReplSession,
   type CodexReplTurnEvent,
   type CodexReplTurnResult,
 } from './runReplCodex.js'
+import type { CodexToolRuntime } from './toolRuntime.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_CODEX: process.env.CLAUDE_CODE_USE_CODEX,
@@ -26,6 +29,102 @@ function buildSseResponse(events: unknown[]): Response {
       'Content-Type': 'text/event-stream',
     },
   })
+}
+
+function createFakeTool(name: string): Tool {
+  return {
+    name,
+    inputSchema: z.object({
+      path: z.string().optional(),
+      query: z.string().optional(),
+      file_path: z.string().optional(),
+      content: z.string().optional(),
+    }),
+    async call(input) {
+      return {
+        data: {
+          ok:
+            input.path ??
+            input.file_path ??
+            input.query ??
+            input.content ??
+            'done',
+        },
+      }
+    },
+    async description() {
+      return `${name} description`
+    },
+    async prompt() {
+      return `${name} prompt`
+    },
+    async checkPermissions() {
+      return {
+        behavior: 'allow',
+        updatedInput: undefined,
+        decisionReason: {
+          type: 'mode',
+          mode: 'default',
+        },
+      }
+    },
+    isConcurrencySafe() {
+      return false
+    },
+    isEnabled() {
+      return true
+    },
+    isReadOnly() {
+      return true
+    },
+    userFacingName() {
+      return name
+    },
+    toAutoClassifierInput() {
+      return ''
+    },
+    mapToolResultToToolResultBlockParam(content, toolUseID) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUseID,
+        content: JSON.stringify(content),
+      }
+    },
+    renderToolUseMessage() {
+      return null
+    },
+    maxResultSizeChars: 1000,
+  } as unknown as Tool
+}
+
+function createFakeRuntime(
+  tools: Tool[],
+): CodexToolRuntime {
+  let appState: any = {
+    toolPermissionContext: getEmptyToolPermissionContext(),
+    fileHistory: {},
+    attribution: {},
+  }
+
+  return {
+    cwd: '/tmp/project',
+    commands: [],
+    tools,
+    mcpClients: [],
+    agents: [],
+    canUseTool: async () => ({
+      behavior: 'allow',
+      updatedInput: undefined,
+      decisionReason: {
+        type: 'mode',
+        mode: 'default',
+      },
+    }),
+    getAppState: () => appState,
+    setAppState: updater => {
+      appState = updater(appState)
+    },
+  }
 }
 
 async function collectTurn(
@@ -205,6 +304,84 @@ describe('createCodexReplSession', () => {
         server_url: 'https://example.com/mcp',
       },
     ])
+  })
+
+  it('executes local function tools through the shared Codex runtime', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    const readTool = createFakeTool('Read')
+    const requestBodies: Record<string, unknown>[] = []
+    let requestCount = 0
+
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestBodies.push(requestBody)
+      requestCount += 1
+
+      if (requestCount === 1) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_tool_round',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'Read',
+                  call_id: 'call_read_1',
+                  arguments: '{"path":"src/index.ts"}',
+                },
+              ],
+              usage: {
+                input_tokens: 7,
+                output_tokens: 3,
+              },
+            },
+          },
+        ])
+      }
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_final',
+            output_text: 'Read complete',
+            usage: {
+              input_tokens: 4,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime([readTool]),
+    })
+
+    const { result } = await collectTurn(session, 'inspect project')
+
+    expect(requestBodies).toHaveLength(2)
+    expect(requestBodies[0]?.tools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'Read',
+      }),
+    ])
+    expect(requestBodies[1]?.previous_response_id).toBe('resp_tool_round')
+    expect(requestBodies[1]?.input).toEqual([
+      {
+        type: 'function_call_output',
+        call_id: 'call_read_1',
+        output: '{"ok":"src/index.ts"}',
+      },
+    ])
+    expect(result.responseText).toBe('Read complete')
+    expect(result.responseId).toBe('resp_final')
+    expect(result.usage.input_tokens).toBe(11)
+    expect(result.usage.output_tokens).toBe(5)
   })
 
   it('starts from persisted state when a previous response id is provided', async () => {

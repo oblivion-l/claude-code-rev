@@ -85,6 +85,7 @@ import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/grow
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
 import { initializeAnalyticsGates } from 'src/services/analytics/sink.js';
 import { resolveReplProvider } from 'src/services/repl/providers.js';
+import type { ReplProviderContext } from 'src/services/repl/context.js';
 import { getOriginalCwd, setAdditionalDirectoriesForClaudeMd, setIsRemoteMode, setMainLoopModelOverride, setMainThreadAgentType, setTeleportedSessionInfo } from './bootstrap/state.js';
 import { filterCommandsForRemoteMode, getCommands } from './commands.js';
 import type { StatsStore } from './context/stats.js';
@@ -3092,6 +3093,10 @@ async function run(): Promise<CommanderCommand> {
       strictMcpConfig,
       systemPrompt,
       appendSystemPrompt,
+      providerContext: {
+        cwd: currentCwd,
+        userSpecifiedModel: effectiveModel,
+      } satisfies ReplProviderContext,
       taskListId,
       thinkingConfig,
       ...(uploaderReady && {
@@ -3110,6 +3115,26 @@ async function run(): Promise<CommanderCommand> {
       cliAgents,
       initialState
     };
+    if (
+      replProvider?.metadata.id === 'codex' &&
+      (options.continue || options.resume || options.resumeSessionAt)
+    ) {
+      await launchRepl(root, {
+        getFpsMetrics,
+        stats,
+        initialState
+      }, {
+        ...sessionConfig,
+        providerContext: {
+          ...sessionConfig.providerContext,
+          continue: !!options.continue,
+          resume: options.resume,
+          resumeSessionAt: options.resumeSessionAt || undefined,
+          forkSession: !!options.forkSession
+        }
+      }, renderAndRun);
+      return;
+    }
     if (options.continue) {
       // Continue the most recent conversation directly
       let resumeSucceeded = false;
@@ -3775,6 +3800,7 @@ async function run(): Promise<CommanderCommand> {
       // REPL will inject hook messages when they resolve and await them before
       // the first API call so the model always sees hook context.
       const pendingHookMessages = hooksPromise && hookMessages.length === 0 ? hooksPromise : undefined;
+      const skipBootstrapMessagesForCodexRepl = replProvider?.metadata.id === 'codex';
       profileCheckpoint('action_after_hooks');
       maybeActivateProactive(options);
       maybeActivateBrief(options);
@@ -3806,7 +3832,7 @@ async function run(): Promise<CommanderCommand> {
           deepLinkBanner = createSystemMessage('Launched with a pre-filled prompt — review it before pressing Enter.', 'warning');
         }
       }
-      const initialMessages = deepLinkBanner ? [deepLinkBanner, ...hookMessages] : hookMessages.length > 0 ? hookMessages : undefined;
+      const initialMessages = skipBootstrapMessagesForCodexRepl ? undefined : deepLinkBanner ? [deepLinkBanner, ...hookMessages] : hookMessages.length > 0 ? hookMessages : undefined;
       await launchRepl(root, {
         getFpsMetrics,
         stats,
@@ -3814,7 +3840,7 @@ async function run(): Promise<CommanderCommand> {
       }, {
         ...sessionConfig,
         initialMessages,
-        pendingHookMessages
+        pendingHookMessages: skipBootstrapMessagesForCodexRepl ? undefined : pendingHookMessages
       }, renderAndRun);
     }
   }).version(`${MACRO.VERSION} (Claude Code)`, '-v, --version', 'Output the version number');

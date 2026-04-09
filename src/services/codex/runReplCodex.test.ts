@@ -103,10 +103,10 @@ describe('createCodexReplSession', () => {
     ])
     expect(result.responseText).toBe('Hello')
     expect(result.responseId).toBe('resp_1')
-    expect(result.conversationState).toEqual({
-      providerId: 'codex',
-      lastResponseId: 'resp_1',
-    })
+    expect(result.conversationState.providerId).toBe('codex-repl')
+    expect(result.conversationState.lastResponseId).toBe('resp_1')
+    expect(result.conversationState.history).toHaveLength(1)
+    expect(result.conversationState.history?.[0]?.responseId).toBe('resp_1')
   })
 
   it('reuses the previous response id on the next turn', async () => {
@@ -159,6 +159,56 @@ describe('createCodexReplSession', () => {
     expect(requestBodies[0]?.previous_response_id).toBeUndefined()
     expect(requestBodies[1]?.previous_response_id).toBe('resp_1')
     expect(secondTurn.result.conversationState.lastResponseId).toBe('resp_2')
+  })
+
+  it('starts from persisted state when a previous response id is provided', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    const requestBodies: Record<string, unknown>[] = []
+
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestBodies.push(requestBody)
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_after_resume',
+            output_text: 'Resumed turn',
+            usage: {
+              input_tokens: 5,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const session = createCodexReplSession({
+      cwd: '/tmp/repl-project',
+      conversationState: {
+        providerId: 'codex-repl',
+        stateId: 'state_resume_1',
+        cwd: '/tmp/repl-project',
+        conversationId: 'state_resume_1',
+        lastResponseId: 'resp_before_resume',
+        history: [
+          {
+            assistantMessageUuid: 'msg_before_resume',
+            responseId: 'resp_before_resume',
+            createdAt: '2026-04-09T00:00:00.000Z',
+          },
+        ],
+      },
+    })
+
+    const { result } = await collectTurn(session, 'resume me')
+
+    expect(requestBodies[0]?.previous_response_id).toBe('resp_before_resume')
+    expect(result.conversationState.stateId).toBe('state_resume_1')
+    expect(result.conversationState.history).toHaveLength(2)
   })
 
   it('fails fast when OPENAI_API_KEY is missing', () => {

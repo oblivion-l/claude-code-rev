@@ -24,9 +24,9 @@ describe('createCodexReplProvider', () => {
       displayName: 'Codex',
     })
     expect(provider.capabilities).toEqual({
-      supportsContinue: false,
-      supportsResume: false,
-      supportsPersistedState: false,
+      supportsContinue: true,
+      supportsResume: true,
+      supportsPersistedState: true,
       supportsTools: false,
     })
     expect(typeof provider.launch).toBe('function')

@@ -1,13 +1,13 @@
 # Codex Provider 使用说明
 
-当前仓库已经加入一个最小可用的 Codex provider 路径，用于 headless CLI 场景。
+当前仓库已经加入一个最小可用的 Codex provider 路径，用于 headless CLI 和最小交互式 REPL 场景。
 
 这条接入路径的范围刻意保持很窄：
 
 - 不替换现有 Claude/Anthropic provider 栈
 - 不改动现有命令树和 CLI bootstrap
 - 只有显式打开环境变量开关时才会启用
-- 当前阶段只支持 headless `--print` 请求，并额外提供基于持久化 state 的 `--continue` / `--resume`
+- 当前已支持 headless `--print` 与 Codex REPL
 
 ## 当前已支持
 
@@ -17,18 +17,31 @@
 - `--output-format json` 的最终结果输出
 - `--system-prompt` 和 `--append-system-prompt`
 - `--json-schema` 的严格结构化输出校验
-- 跨进程 `--continue`
-- `--resume <state-id>`
-- `--resume --resume-session-at <assistant-message-uuid>`
+- headless 跨进程 `--continue`
+- headless `--resume <state-id>`
+- headless `--resume --resume-session-at <assistant-message-uuid>`
+- Codex REPL 文本多轮
+- Codex REPL 的同进程 `--continue`
+- Codex REPL 的持久化 `--resume <state-id>` / `--resume-session-at`
+- Codex REPL 下最小 MCP 直连
 
 ## 当前暂不支持
 
-- 交互式 REPL 模式
 - rewind、fork session
 - `--input-format stream-json`
-- 接入现有工具编排链路的 tool calling
-- MCP / agent 工作流
+- 接入现有 Anthropic 工具编排链路的 tool calling
+- agent 工作流
 - 在 structured output 回合里进行交互式工具使用或 agent orchestration
+- REPL 里的 slash command 工具流
+
+当前 MCP 仅支持以下范围：
+
+- 仅在 Codex REPL 路径启用
+- 仅支持远程 `http` / `sse` MCP 服务
+- 要求服务使用绝对 `http(s)` URL
+- 不支持 `stdio`、`ws`、`sdk`、`sse-ide`、`ws-ide`、`claudeai-proxy`
+- 不支持依赖 `headers`、`headersHelper`、`oauth` 的 MCP 配置
+- 不接入现有 Anthropic MCP/tool orchestration
 
 不支持的组合会直接 fail-fast，返回明确错误，而不是静默回退到其他路径。
 
@@ -111,6 +124,35 @@ bun run dev -p --output-format stream-json --verbose "Explain the repository str
 bun run dev -p --resume <session_id> --resume-session-at <assistant_message_uuid> "Branch from that earlier answer"
 ```
 
+Codex REPL：
+
+```bash
+export CLAUDE_CODE_USE_CODEX=1
+export OPENAI_API_KEY=your_api_key
+bun run dev
+```
+
+带远程 MCP 配置的 Codex REPL：
+
+```bash
+export CLAUDE_CODE_USE_CODEX=1
+export OPENAI_API_KEY=your_api_key
+bun run dev --mcp-config ./mcp.remote.json
+```
+
+示例 `mcp.remote.json`：
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "type": "http",
+      "url": "https://example.com/mcp"
+    }
+  }
+}
+```
+
 ## 验收说明
 
 完整的发布验收清单和逐条命令预期见 [codex-acceptance.md](./codex-acceptance.md)。
@@ -184,6 +226,16 @@ API 侧 schema 拒绝或不支持关键字
 - 说明 schema 虽然能在本地编译，但被 OpenAI API 的 structured output 子集拒绝了。
 - 优先删除不受支持的关键字，或简化 schema 结构。
 
+`Codex MCP server "..." uses unsupported transport "..."`
+
+- 说明当前 MCP 配置里包含 Codex 路径无法直连的 transport。
+- 当前只支持远程 `http` / `sse`，本地 `stdio` 和 `ws` 需要后续独立的工具编排层。
+
+`Codex MCP server "..." uses headers, headersHelper, or oauth ...`
+
+- 说明该 MCP 服务依赖本地认证或请求改写能力。
+- 当前 Codex REPL 只支持直接透传的远程 MCP 配置，不支持本地认证辅助逻辑。
+
 ## 回滚方式
 
 如果想回到之前的默认行为，直接关闭特性开关：
@@ -196,7 +248,9 @@ unset CLAUDE_CODE_USE_CODEX
 
 ## 实现位置
 
-Codex 路径的接入口位于 `src/cli/print.ts`。
+Codex headless 路径的接入口位于 `src/cli/print.ts`。
+
+Codex REPL 路径的接入口位于 `src/replLauncher.tsx`。
 
 provider 具体实现位于 `src/services/codex`。
 

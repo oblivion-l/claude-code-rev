@@ -37,11 +37,13 @@ export function formatCodexApiError({
   body,
   model,
   usedStructuredOutput,
+  usedMcpTools,
 }: {
   status: number
   body: CodexApiErrorBody
   model: string
   usedStructuredOutput: boolean
+  usedMcpTools?: boolean
 }): string {
   const message = getErrorMessage(body)
   const errorType = body.error?.type
@@ -77,6 +79,20 @@ export function formatCodexApiError({
     status < 500
   ) {
     return `Codex structured output request was rejected by the API for model ${model}: ${message ?? `HTTP ${status}`}`
+  }
+
+  if (
+    usedMcpTools &&
+    (
+      errorCode === 'unsupported_parameter' ||
+      errorParam?.startsWith('tools') ||
+      errorParam?.startsWith('tool_choice') ||
+      message?.toLowerCase().includes('mcp') ||
+      message?.toLowerCase().includes('tool type') &&
+        message.toLowerCase().includes('not supported')
+    )
+  ) {
+    return `Codex MCP tools are not supported for model ${model} or this API parameter set: ${message ?? `HTTP ${status}`}`
   }
 
   if (message) {

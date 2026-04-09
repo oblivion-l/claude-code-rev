@@ -15,6 +15,7 @@ import {
   parseCodexSSE,
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
+import { resolveCodexMcpTools } from './mcp.js'
 import {
   extractCompletedResponse,
   extractResponseId,
@@ -23,7 +24,7 @@ import {
   extractUsage,
   getCodexFailureMessage,
 } from './stream.js'
-import type { CodexRuntimeConfig } from './types.js'
+import type { CodexMcpTool, CodexRuntimeConfig } from './types.js'
 import {
   type CodexReplPersistedState,
   getCodexReplState,
@@ -245,6 +246,7 @@ export class CodexReplSession {
       systemPrompt?: string
       appendSystemPrompt?: string
       cwd?: string
+      mcpTools?: CodexMcpTool[]
       conversationState?: CodexReplConversationState | null
     } = {},
   ) {
@@ -291,6 +293,7 @@ export class CodexReplSession {
       input: prompt,
       instructions: this.instructions,
       previousResponseId: this.conversationState.lastResponseId,
+      tools: this.options.mcpTools,
       signal,
     })
 
@@ -363,6 +366,7 @@ export function createCodexReplSession(options?: {
   systemPrompt?: string
   appendSystemPrompt?: string
   cwd?: string
+  mcpTools?: CodexMcpTool[]
   conversationState?: CodexReplConversationState | null
 }): CodexReplSession {
   return new CodexReplSession(options)
@@ -379,15 +383,21 @@ export async function runCodexRepl({
 
   let session: CodexReplSession
   let initialConversationState: CodexReplPersistedState | null
+  let mcpTools: CodexMcpTool[]
   try {
     initialConversationState = resolveInitialConversationState({
       replProps,
+    })
+    mcpTools = await resolveCodexMcpTools({
+      dynamicMcpConfig: replProps.dynamicMcpConfig,
+      strictMcpConfig: replProps.strictMcpConfig,
     })
     session = createCodexReplSession({
       userSpecifiedModel: replProps.providerContext?.userSpecifiedModel,
       systemPrompt: replProps.systemPrompt,
       appendSystemPrompt: replProps.appendSystemPrompt,
       cwd: replProps.providerContext?.cwd,
+      mcpTools,
       conversationState: initialConversationState,
     })
   } catch (error) {
@@ -491,7 +501,7 @@ export function createCodexReplProvider(): ReplProvider {
       supportsContinue: true,
       supportsResume: true,
       supportsPersistedState: true,
-      supportsTools: false,
+      supportsTools: true,
     },
     async launch(args: ReplProviderLaunchArgs): Promise<void> {
       const exitCode = await runCodexRepl(args)

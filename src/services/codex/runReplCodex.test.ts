@@ -161,6 +161,52 @@ describe('createCodexReplSession', () => {
     expect(secondTurn.result.conversationState.lastResponseId).toBe('resp_2')
   })
 
+  it('passes mapped MCP tools through to the Codex API request', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    const requestBodies: Record<string, unknown>[] = []
+
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestBodies.push(requestBody)
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_with_mcp',
+            output_text: 'Used MCP',
+            usage: {
+              input_tokens: 6,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const session = createCodexReplSession({
+      mcpTools: [
+        {
+          type: 'mcp',
+          server_label: 'docs',
+          server_url: 'https://example.com/mcp',
+        },
+      ],
+    })
+
+    await collectTurn(session, 'use docs')
+
+    expect(requestBodies[0]?.tools).toEqual([
+      {
+        type: 'mcp',
+        server_label: 'docs',
+        server_url: 'https://example.com/mcp',
+      },
+    ])
+  })
+
   it('starts from persisted state when a previous response id is provided', async () => {
     process.env.CLAUDE_CODE_USE_CODEX = '1'
     process.env.OPENAI_API_KEY = 'test-key'
@@ -246,6 +292,42 @@ describe('createCodexReplSession', () => {
 
     await expect(collectTurn(session, 'hello')).rejects.toThrow(
       'Codex model gpt-unknown is not supported for this request: This model is not supported for realtime responses.',
+    )
+  })
+
+  it('surfaces MCP parameter errors from the API clearly', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: 'Unsupported parameter: tools[0].type',
+            param: 'tools[0].type',
+            code: 'unsupported_parameter',
+          },
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+
+    const session = createCodexReplSession({
+      mcpTools: [
+        {
+          type: 'mcp',
+          server_label: 'docs',
+          server_url: 'https://example.com/mcp',
+        },
+      ],
+    })
+
+    await expect(collectTurn(session, 'hello')).rejects.toThrow(
+      'Codex MCP tools are not supported for model gpt-5-codex or this API parameter set: Unsupported parameter: tools[0].type',
     )
   })
 })

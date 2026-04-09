@@ -13,6 +13,14 @@ export type CodexStructuredOutputFormat = {
   strict: true
 }
 
+export type CodexMcpTool = {
+  type: 'mcp'
+  server_label: string
+  server_url: string
+}
+
+export type CodexRequestTool = CodexMcpTool
+
 export type CodexStreamEvent = {
   type: string
   [key: string]: unknown

@@ -1,4 +1,5 @@
 import type {
+  CodexRequestTool,
   CodexRuntimeConfig,
   CodexStreamEvent,
   CodexStructuredOutputFormat,
@@ -12,10 +13,12 @@ async function buildHttpError({
   response,
   model,
   usedStructuredOutput,
+  usedMcpTools,
 }: {
   response: Response
   model: string
   usedStructuredOutput: boolean
+  usedMcpTools: boolean
 }): Promise<Error> {
   const bodyText = await response.text()
   const parsed = tryParseCodexApiErrorBody(bodyText)
@@ -27,6 +30,7 @@ async function buildHttpError({
         body: parsed,
         model,
         usedStructuredOutput,
+        usedMcpTools,
       }),
     )
   }
@@ -41,6 +45,7 @@ export async function createCodexResponseStream({
   instructions,
   previousResponseId,
   structuredOutputFormat,
+  tools,
   signal,
 }: {
   config: CodexRuntimeConfig
@@ -48,6 +53,7 @@ export async function createCodexResponseStream({
   instructions?: string
   previousResponseId?: string
   structuredOutputFormat?: CodexStructuredOutputFormat
+  tools?: CodexRequestTool[]
   signal?: AbortSignal
 }): Promise<Response> {
   const headers: Record<string, string> = {
@@ -83,6 +89,7 @@ export async function createCodexResponseStream({
             },
           }
         : {}),
+      ...(tools && tools.length > 0 ? { tools } : {}),
       ...(instructions ? { instructions } : {}),
     }),
     signal,
@@ -93,6 +100,7 @@ export async function createCodexResponseStream({
       response,
       model: config.model,
       usedStructuredOutput: Boolean(structuredOutputFormat),
+      usedMcpTools: Boolean(tools?.length),
     })
   }
 

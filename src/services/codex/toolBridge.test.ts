@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
-import type { HeadlessProviderRuntime } from 'src/services/headless/provider.js'
 import {
   executeCodexFunctionCalls,
   extractCodexFunctionCalls,
   mapCodexFunctionTools,
   selectCodexFunctionTools,
 } from './toolBridge.js'
+import type { CodexToolRuntime } from './toolRuntime.js'
 
 function createFakeRuntime(
   tools: Tool[],
-): HeadlessProviderRuntime {
+): CodexToolRuntime {
   let appState: any = {
     toolPermissionContext: getEmptyToolPermissionContext(),
     fileHistory: {},

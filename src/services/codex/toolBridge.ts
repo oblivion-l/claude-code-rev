@@ -1,8 +1,5 @@
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 import { randomUUID } from 'crypto'
-import type {
-  HeadlessProviderRuntime,
-} from 'src/services/headless/provider.js'
 import { runToolUse } from 'src/services/tools/toolExecution.js'
 import type { AssistantMessage, Message, UserMessage } from 'src/types/message.js'
 import type { Tool, ToolUseContext, Tools } from 'src/Tool.js'
@@ -22,6 +19,7 @@ import { FILE_WRITE_TOOL_NAME } from 'src/tools/FileWriteTool/prompt.js'
 import { GLOB_TOOL_NAME } from 'src/tools/GlobTool/prompt.js'
 import { GREP_TOOL_NAME } from 'src/tools/GrepTool/prompt.js'
 import { POWERSHELL_TOOL_NAME } from 'src/tools/PowerShellTool/toolName.js'
+import type { CodexToolRuntime } from './toolRuntime.js'
 import type {
   CodexFunctionCall,
   CodexFunctionCallOutput,
@@ -60,7 +58,7 @@ export function selectCodexFunctionTools(tools: Tools): Tools {
 
 export async function mapCodexFunctionTools(args: {
   tools: Tools
-  runtime: HeadlessProviderRuntime
+  runtime: CodexToolRuntime
   model: string
 }): Promise<CodexFunctionTool[]> {
   const eligibleTools = selectCodexFunctionTools(args.tools)
@@ -137,7 +135,7 @@ export type CodexFunctionToolExecutor = {
 }
 
 function buildHeadlessToolUseContext(args: {
-  runtime: HeadlessProviderRuntime
+  runtime: CodexToolRuntime
   model: string
   tools: Tools
   messages: Message[]
@@ -288,7 +286,7 @@ function buildInvalidArgumentsOutput(
 }
 
 export async function executeCodexFunctionCalls(args: {
-  runtime: HeadlessProviderRuntime
+  runtime: CodexToolRuntime
   tools: Tools
   functionCalls: CodexFunctionCall[]
   model: string
@@ -315,7 +313,7 @@ async function executeCodexFunctionCallsWithContext(args: {
   functionCalls: CodexFunctionCall[]
   messages: Message[]
   toolUseContext: ToolUseContext
-  canUseTool: HeadlessProviderRuntime['canUseTool']
+  canUseTool: CodexToolRuntime['canUseTool']
 }): Promise<CodexFunctionCallOutput[]> {
   const outputs: CodexFunctionCallOutput[] = []
 
@@ -365,7 +363,7 @@ async function executeCodexFunctionCallsWithContext(args: {
 }
 
 export function createCodexFunctionToolExecutor(args: {
-  runtime: HeadlessProviderRuntime
+  runtime: CodexToolRuntime
   tools: Tools
   model: string
   abortController: AbortController

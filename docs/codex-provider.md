@@ -48,6 +48,7 @@
 
 - 仅在 `CLAUDE_CODE_USE_CODEX=1` 的 `--print` 路径启用
 - 复用仓库现有工具执行框架，而不是提示词伪装
+- 底层已抽成共享 Codex tool runtime，方便后续在其他 provider 路径复用，但当前对外开放范围仍只限 `--print`
 - 当前只开放高价值本地开发工具：`Read`、`Glob`、`Grep`、`Write`、`Edit`、`Bash`、`PowerShell`
 - 继续复用现有权限检查与工具执行逻辑
 - 不开放 Agent、REPL slash command、交互式本地 JSX 工具
@@ -263,5 +264,7 @@ Codex headless 路径的接入口位于 `src/cli/print.ts`。
 Codex REPL 路径的接入口位于 `src/replLauncher.tsx`。
 
 provider 具体实现位于 `src/services/codex`。
+
+其中本地工具执行的共享 runtime 定义位于 `src/services/codex/toolRuntime.ts`。
 
 这样可以把改动限制在隔离区域内，后续继续扩展时不需要一次性重写整条查询链路。

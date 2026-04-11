@@ -65,8 +65,31 @@ function assertNoUnsupportedRemoteMcpOptions(
   }
 }
 
+export function isCodexMcpConfigHandledByLocalBridge(
+  config: ScopedMcpServerConfig,
+): boolean {
+  const transport = config.type ?? 'stdio'
+
+  if (transport === 'stdio' || transport === 'ws') {
+    return true
+  }
+
+  if (transport !== 'http' && transport !== 'sse') {
+    return false
+  }
+
+  return Boolean(
+    (config.headers && Object.keys(config.headers).length > 0) ||
+      config.headersHelper ||
+      ('oauth' in config && config.oauth),
+  )
+}
+
 export function mapCodexMcpTools(
   configs: Record<string, ScopedMcpServerConfig>,
+  options?: {
+    allowLocalBridge?: boolean
+  },
 ): CodexMcpTool[] {
   return Object.entries(configs)
     .sort(([leftName], [rightName]) => leftName.localeCompare(rightName))
@@ -74,6 +97,13 @@ export function mapCodexMcpTools(
       const transport = config.type ?? 'stdio'
 
       if (isIgnoredInternalCodexMcpConfig(config)) {
+        return []
+      }
+
+      if (
+        options?.allowLocalBridge &&
+        isCodexMcpConfigHandledByLocalBridge(config)
+      ) {
         return []
       }
 
@@ -115,6 +145,7 @@ export function mapCodexMcpTools(
 export async function resolveCodexMcpTools(options?: {
   dynamicMcpConfig?: Record<string, ScopedMcpServerConfig>
   strictMcpConfig?: boolean
+  allowLocalBridge?: boolean
 }): Promise<CodexMcpTool[]> {
   const dynamicMcpConfig = options?.dynamicMcpConfig ?? {}
   const configs = options?.strictMcpConfig
@@ -123,5 +154,7 @@ export async function resolveCodexMcpTools(options?: {
         await getClaudeCodeMcpConfigs(dynamicMcpConfig)
       ).servers
 
-  return mapCodexMcpTools(configs)
+  return mapCodexMcpTools(configs, {
+    allowLocalBridge: options?.allowLocalBridge,
+  })
 }

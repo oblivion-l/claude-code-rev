@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import type { ScopedMcpServerConfig } from 'src/services/mcp/types.js'
-import { mapCodexMcpTools } from './mcp.js'
+import {
+  isCodexMcpConfigHandledByLocalBridge,
+  mapCodexMcpTools,
+} from './mcp.js'
 
 describe('mapCodexMcpTools', () => {
   it('maps supported remote http and sse MCP servers', () => {
@@ -104,5 +107,78 @@ describe('mapCodexMcpTools', () => {
     ).toThrow(
       'Codex MCP server "broken" must use an absolute http(s) URL.',
     )
+  })
+
+  it('skips locally bridged MCP configs when local bridging is enabled', () => {
+    const tools = mapCodexMcpTools(
+      {
+        local_stdio: {
+          command: 'node',
+          args: ['server.js'],
+          scope: 'user',
+        } satisfies ScopedMcpServerConfig,
+        secured_remote: {
+          type: 'http',
+          url: 'https://example.com/mcp',
+          headersHelper: 'node helper.js',
+          scope: 'project',
+        } satisfies ScopedMcpServerConfig,
+        plain_remote: {
+          type: 'sse',
+          url: 'https://example.com/sse',
+          scope: 'project',
+        } satisfies ScopedMcpServerConfig,
+      },
+      {
+        allowLocalBridge: true,
+      },
+    )
+
+    expect(tools).toEqual([
+      {
+        type: 'mcp',
+        server_label: 'plain_remote',
+        server_url: 'https://example.com/sse',
+      },
+    ])
+  })
+})
+
+describe('isCodexMcpConfigHandledByLocalBridge', () => {
+  it('marks stdio, ws, and auth-assisted remote MCP configs as bridgeable', () => {
+    expect(
+      isCodexMcpConfigHandledByLocalBridge({
+        command: 'node',
+        args: ['server.js'],
+        scope: 'user',
+      } satisfies ScopedMcpServerConfig),
+    ).toBe(true)
+
+    expect(
+      isCodexMcpConfigHandledByLocalBridge({
+        type: 'ws',
+        url: 'wss://example.com/mcp',
+        scope: 'user',
+      } satisfies ScopedMcpServerConfig),
+    ).toBe(true)
+
+    expect(
+      isCodexMcpConfigHandledByLocalBridge({
+        type: 'http',
+        url: 'https://example.com/mcp',
+        headers: {
+          Authorization: 'Bearer token',
+        },
+        scope: 'user',
+      } satisfies ScopedMcpServerConfig),
+    ).toBe(true)
+
+    expect(
+      isCodexMcpConfigHandledByLocalBridge({
+        type: 'sse',
+        url: 'https://example.com/mcp',
+        scope: 'user',
+      } satisfies ScopedMcpServerConfig),
+    ).toBe(false)
   })
 })

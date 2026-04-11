@@ -532,6 +532,7 @@ export async function runCodexRepl(
     mcpTools = await resolveCodexMcpTools({
       dynamicMcpConfig: replProps.dynamicMcpConfig,
       strictMcpConfig: replProps.strictMcpConfig,
+      allowLocalBridge: true,
     })
     session = createCodexReplSession({
       userSpecifiedModel: replProps.providerContext?.userSpecifiedModel,

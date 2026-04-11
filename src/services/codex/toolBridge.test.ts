@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
+import type { MCPServerConnection } from 'src/services/mcp/types.js'
 import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js'
 import {
   executeCodexFunctionCalls,
@@ -46,6 +47,7 @@ afterEach(() => {
 
 function createFakeRuntime(
   tools: Tool[],
+  mcpClients: MCPServerConnection[] = [],
 ): CodexToolRuntime {
   let appState: any = {
     toolPermissionContext: getEmptyToolPermissionContext(),
@@ -58,7 +60,7 @@ function createFakeRuntime(
     cwd: '/tmp/project',
     commands: [],
     tools,
-    mcpClients: [],
+    mcpClients,
     agents: [],
     canUseTool: async () => ({
       behavior: 'allow',
@@ -75,7 +77,10 @@ function createFakeRuntime(
   }
 }
 
-function createFakeTool(name: string): Tool {
+function createFakeTool(
+  name: string,
+  overrides?: Partial<Tool>,
+): Tool {
   return {
     name,
     inputSchema: z.object({
@@ -138,7 +143,25 @@ function createFakeTool(name: string): Tool {
       return null
     },
     maxResultSizeChars: 1000,
+    ...overrides,
   } as unknown as Tool
+}
+
+function createConnectedMcpClient(name: string): MCPServerConnection {
+  return {
+    name,
+    type: 'connected',
+    capabilities: {
+      tools: {},
+    },
+    client: {} as never,
+    cleanup: async () => {},
+    config: {
+      command: 'node',
+      args: ['server.js'],
+      scope: 'user',
+    },
+  }
 }
 
 describe('selectCodexFunctionTools', () => {
@@ -149,6 +172,40 @@ describe('selectCodexFunctionTools', () => {
     expect(selectCodexFunctionTools([readTool, unsupportedTool])).toEqual([
       readTool,
     ])
+  })
+
+  it('includes locally bridged MCP tools for connected stdio servers', () => {
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+    const remoteMcpTool = createFakeTool('mcp__remote__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'remote',
+        toolName: 'search',
+      },
+    })
+
+    const selected = selectCodexFunctionTools(
+      [bridgedMcpTool, remoteMcpTool],
+      createFakeRuntime([], [
+        createConnectedMcpClient('docs'),
+        {
+          ...createConnectedMcpClient('remote'),
+          config: {
+            type: 'sse',
+            url: 'https://example.com/mcp',
+            scope: 'user',
+          },
+        },
+      ]),
+    )
+
+    expect(selected).toEqual([bridgedMcpTool])
   })
 })
 
@@ -168,6 +225,39 @@ describe('mapCodexFunctionTools', () => {
         type: 'function',
         name: 'Read',
         description: 'Read prompt',
+      }),
+    ])
+  })
+
+  it('maps locally bridged MCP tools to Codex function schemas', async () => {
+    const mcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+      async description() {
+        return 'docs search description'
+      },
+      async prompt() {
+        return 'docs search prompt'
+      },
+    })
+    const runtime = createFakeRuntime([mcpTool], [
+      createConnectedMcpClient('docs'),
+    ])
+
+    const tools = await mapCodexFunctionTools({
+      tools: [mcpTool],
+      runtime,
+      model: 'gpt-5-codex',
+    })
+
+    expect(tools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'mcp__docs__search',
+        description: 'docs search prompt',
       }),
     ])
   })

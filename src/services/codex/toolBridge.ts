@@ -19,6 +19,7 @@ import { FILE_WRITE_TOOL_NAME } from 'src/tools/FileWriteTool/prompt.js'
 import { GLOB_TOOL_NAME } from 'src/tools/GlobTool/prompt.js'
 import { GREP_TOOL_NAME } from 'src/tools/GrepTool/prompt.js'
 import { POWERSHELL_TOOL_NAME } from 'src/tools/PowerShellTool/toolName.js'
+import { isCodexMcpConfigHandledByLocalBridge } from './mcp.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 import type {
   CodexFunctionCall,
@@ -36,12 +37,39 @@ const CODEX_LOCAL_TOOL_ALLOWLIST = new Set([
   POWERSHELL_TOOL_NAME,
 ])
 
-function isCodexFunctionToolEligible(tool: Tool): boolean {
-  if (!CODEX_LOCAL_TOOL_ALLOWLIST.has(tool.name)) {
+function isCodexLocalBridgeMcpTool(
+  tool: Tool,
+  runtime?: CodexToolRuntime,
+): boolean {
+  if (!tool.isMcp || !tool.mcpInfo || !runtime) {
     return false
   }
 
-  if (tool.isMcp || tool.shouldDefer || !tool.isEnabled()) {
+  const client = runtime.mcpClients.find(
+    candidate =>
+      candidate.type === 'connected' &&
+      candidate.name === tool.mcpInfo?.serverName,
+  )
+
+  if (!client) {
+    return false
+  }
+
+  return isCodexMcpConfigHandledByLocalBridge(client.config)
+}
+
+function isCodexFunctionToolEligible(
+  tool: Tool,
+  runtime?: CodexToolRuntime,
+): boolean {
+  if (
+    !isCodexLocalBridgeMcpTool(tool, runtime) &&
+    !CODEX_LOCAL_TOOL_ALLOWLIST.has(tool.name)
+  ) {
+    return false
+  }
+
+  if (tool.shouldDefer || !tool.isEnabled()) {
     return false
   }
 
@@ -52,8 +80,11 @@ function isCodexFunctionToolEligible(tool: Tool): boolean {
   return true
 }
 
-export function selectCodexFunctionTools(tools: Tools): Tools {
-  return tools.filter(isCodexFunctionToolEligible)
+export function selectCodexFunctionTools(
+  tools: Tools,
+  runtime?: CodexToolRuntime,
+): Tools {
+  return tools.filter(tool => isCodexFunctionToolEligible(tool, runtime))
 }
 
 export async function mapCodexFunctionTools(args: {
@@ -61,7 +92,7 @@ export async function mapCodexFunctionTools(args: {
   runtime: CodexToolRuntime
   model: string
 }): Promise<CodexFunctionTool[]> {
-  const eligibleTools = selectCodexFunctionTools(args.tools)
+  const eligibleTools = selectCodexFunctionTools(args.tools, args.runtime)
 
   return Promise.all(
     eligibleTools.map(async tool => {

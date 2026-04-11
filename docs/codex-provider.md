@@ -21,11 +21,13 @@
 - headless `--resume <state-id>`
 - headless `--resume --resume-session-at <assistant-message-uuid>`
 - headless `--print` 下最小本地开发工具闭环
+- 已连接 MCP server 的本地 bridge 工具闭环
 - Codex REPL 文本多轮
 - Codex REPL 下最小本地开发工具闭环
 - Codex REPL 的同进程 `--continue`
 - Codex REPL 的持久化 `--resume <state-id>` / `--resume-session-at`
-- Codex REPL 下最小 MCP 直连
+- Codex REPL 下远程 MCP 直连
+- Codex REPL 下本地 bridge MCP 工具执行
 
 ## 当前暂不支持
 
@@ -38,12 +40,12 @@
 
 当前 MCP 仅支持以下范围：
 
-- 仅在 Codex REPL 路径启用
-- 仅支持远程 `http` / `sse` MCP 服务
-- 要求服务使用绝对 `http(s)` URL
-- 不支持 `stdio`、`ws`、`sdk`、`sse-ide`、`ws-ide`、`claudeai-proxy`
-- 不支持依赖 `headers`、`headersHelper`、`oauth` 的 MCP 配置
-- 不接入现有 Anthropic MCP/tool orchestration
+- Codex API 原生远程 MCP 透传仍只在 Codex REPL 路径启用
+- 原生远程 MCP 透传只接受绝对 `http(s)` URL 的 `http` / `sse` 服务
+- 已由仓库现有 MCP client 成功连接的服务，可在 Codex 路径下通过本地 function bridge 暴露给模型
+- 当前本地 bridge 会接住 `stdio`、`ws`，以及依赖 `headers`、`headersHelper`、`oauth` 的远程 MCP 配置
+- `sdk`、`sse-ide`、`ws-ide`、`claudeai-proxy` 仍不直接暴露给 Codex provider
+- 不接入现有 Anthropic agent 工作流与更复杂的 tool orchestration UI
 
 当前 headless 本地工具仅支持以下范围：
 
@@ -64,10 +66,15 @@
 - 不接 REPL slash command 工具流，不开放 Agent 工具编排
 - 与远程 MCP 透传保持并列关系，不合并成新的 orchestration 协议
 
+当前 Codex MCP 的执行方式分为两类：
+
+- 远程直连：适用于简单 `http` / `sse` 远程 MCP，直接把 `mcp` tool 定义发给 Codex Responses API
+- 本地 bridge：适用于需要本地进程、认证辅助或 websocket 的 MCP，先由本仓库 MCP client 连接，再以 Codex function tool 方式暴露
+
 当前 Codex tool capability matrix 为：
 
-- headless `--print`：支持本地 function tools；不支持远程 MCP；不支持 remote MCP 与本地 function tools 混合
-- Codex REPL：支持本地 function tools；支持远程 MCP；支持两者混合装配
+- headless `--print`：支持本地 function tools；可通过本地 bridge 使用已连接 MCP 工具；不支持远程 MCP 透传；不支持 remote MCP 与本地 function tools 混合
+- Codex REPL：支持本地 function tools；支持远程 MCP 透传；支持本地 bridge MCP；支持两者混合装配
 
 不支持的组合会直接 fail-fast，返回明确错误，而不是静默回退到其他路径。
 
@@ -357,13 +364,13 @@ API 侧 schema 拒绝或不支持关键字
 
 `Codex MCP server "..." uses unsupported transport "..."`
 
-- 说明当前 MCP 配置里包含 Codex 路径无法直连的 transport。
-- 当前只支持远程 `http` / `sse`，本地 `stdio` 和 `ws` 需要后续独立的工具编排层。
+- 说明当前 MCP 配置里包含 Codex 原生远程透传无法处理的 transport。
+- 对于 `stdio`、`ws` 或需要认证辅助的远程 MCP，当前新版会优先尝试走本地 bridge；只有在未接上本地 bridge 的上下文里才会继续报这个错误。
 
 `Codex MCP server "..." uses headers, headersHelper, or oauth ...`
 
 - 说明该 MCP 服务依赖本地认证或请求改写能力。
-- 当前 Codex REPL 只支持直接透传的远程 MCP 配置，不支持本地认证辅助逻辑。
+- 当前推荐走本地 bridge；如果你仍然触发这个错误，通常表示这次请求没有拿到已连接的 MCP runtime。
 
 `Codex local function tools are not supported for model ... or this API parameter set`
 

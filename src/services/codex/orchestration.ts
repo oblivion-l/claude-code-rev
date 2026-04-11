@@ -70,7 +70,7 @@ export async function prepareCodexToolOrchestration(args: {
 
   const functionEnabledTools =
     requestPlan.enabled.localFunctionTools && args.runtime
-    ? selectCodexFunctionTools(args.runtime.tools)
+    ? selectCodexFunctionTools(args.runtime.tools, args.runtime)
     : []
   const functionTools =
     args.runtime && functionEnabledTools.length > 0

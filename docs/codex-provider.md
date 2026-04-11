@@ -27,7 +27,7 @@
 - Codex REPL 下最小本地开发工具闭环
 - Codex REPL 的同进程 `--continue`
 - Codex REPL 的持久化 `--resume <state-id>` / `--resume-session-at`
-- Codex REPL slash commands：`/help`、`/status`、`/resume`、`/model`、`/tools`、`/exit`
+- Codex REPL slash commands：`/help`、`/new`、`/sessions`、`/status`、`/resume`、`/model`、`/tools`、`/exit`
 - Codex REPL 下远程 MCP 直连
 - Codex REPL 下本地 bridge MCP 工具执行
 
@@ -272,8 +272,12 @@ bun run dev
 
 - `/help`
   - 查看当前 Codex REPL 支持的命令清单。
+- `/new`
+  - 新建一个会话，清空当前上下文，但保留当前 provider 配置、模型和工作目录。
+- `/sessions`
+  - 列出最近持久化的 Codex REPL 会话，包含 state id、cwd、最近保存时间和 model。
 - `/status`
-  - 查看当前 provider、model、base URL、session id、当前目录、conversation state，以及 MCP 连接状态。
+  - 查看当前 provider、model、base URL、session id、当前目录、conversation state、state 文件路径、最后保存时间，以及 MCP 连接状态。
 - `/resume`
   - 按当前工作目录加载最近一次持久化的 Codex REPL conversation state。
 - `/resume <state-id>`
@@ -310,6 +314,8 @@ REPL slash command 使用示例：
 
 ```text
 codex> /help
+codex> /new
+codex> /sessions
 codex> /status
 codex> /model
 codex> /tools
@@ -323,6 +329,8 @@ codex> /exit
 - 当前 provider、model、API base URL
 - 当前 session id / conversation id
 - 当前目录是否存在可继续的持久化 conversation state
+- 当前 state 文件路径
+- 当前 state 最后保存时间
 - 本地 MCP bridge server 的连接状态统计
 - 每个 MCP server 的 transport、失败原因或鉴权状态
 - 远程 MCP passthrough server 列表
@@ -363,8 +371,15 @@ codex> /exit
 
 - `/resume` 会按当前工作目录查找最近一次持久化的 Codex REPL state
 - `/resume <state-id>` 会按显式 state id 加载持久化 state
+- `/resume` 与 `/resume <state-id>` 的成功/失败文案已统一，便于脚本化判断
 - 若没有可用 state，会直接返回清晰错误，不会静默新建会话
 - `/status` 会使用与 headless 近似的 wording 提示当前目录是否已有可继续的 conversation state
+
+当在 Codex REPL 中使用 `/new` 和 `/sessions` 时：
+
+- `/new` 会立即切到新的 persisted conversation state，并清空上一会话的上下文
+- `/new` 不会删除旧 state 文件，旧会话仍可通过 `/sessions` 或 `/resume <state-id>` 找回
+- `/sessions` 默认列出最近持久化的 Codex REPL state，按最近保存时间倒序显示
 
 ## 常见错误
 

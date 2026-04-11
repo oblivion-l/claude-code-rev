@@ -276,6 +276,8 @@ bun run dev
   - 新建一个会话，清空当前上下文，但保留当前 provider 配置、模型和工作目录。
 - `/sessions`
   - 列出最近持久化的 Codex REPL 会话，包含 state id、cwd、最近保存时间和 model。
+  - 支持 `--cwd <path>`、`--provider codex|all`、`--query <keyword>`、`--page <n>`、`--page-size <n>`。
+  - 默认按当前目录优先排序；`--page` 默认 `1`，`--page-size` 默认 `10`，最大 `50`。
 - `/status`
   - 查看当前 provider、model、base URL、session id、当前目录、conversation state、state 文件路径、最后保存时间，以及 MCP 连接状态。
   - 对每个 MCP bridge server 额外显示 `scope/plugin` 来源、目标端点（`command` 或 `endpoint`）、连接后 server info 与 capabilities，失败时统一输出 `reason=...`。
@@ -318,6 +320,9 @@ REPL slash command 使用示例：
 codex> /help
 codex> /new
 codex> /sessions
+codex> /sessions --query repo --page 2 --page-size 5
+codex> /sessions --cwd /work/project-a
+codex> /sessions --provider all
 codex> /status
 codex> /model
 codex> /tools
@@ -384,7 +389,11 @@ codex> /exit
 
 - `/new` 会立即切到新的 persisted conversation state，并清空上一会话的上下文
 - `/new` 不会删除旧 state 文件，旧会话仍可通过 `/sessions` 或 `/resume <state-id>` 找回
-- `/sessions` 默认列出最近持久化的 Codex REPL state，按最近保存时间倒序显示
+- `/sessions` 默认列出最近持久化的 Codex REPL state，分页大小默认 `10`
+- `/sessions` 会在输出中显示当前页 / 总页数、总条数，以及是否按当前目录优先排序
+- `/sessions --cwd <path>` 会按 cwd 过滤结果
+- `/sessions --query <keyword>` 会匹配 `state-id`、`cwd` 和 `model`
+- `/sessions --provider all` 当前与 `codex` 结果相同；`anthropic` 暂未接入 Codex REPL，会直接 fail-fast
 
 ## 常见错误
 

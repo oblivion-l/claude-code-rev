@@ -1031,7 +1031,9 @@ describe('createCodexReplSession', () => {
     expect(lines).toContain(
       '- /new Start a new persisted conversation state with the current configuration',
     )
-    expect(lines).toContain('- /sessions List recent persisted conversation states')
+    expect(lines).toContain(
+      '- /sessions [options] List recent persisted conversation states with filtering and pagination',
+    )
     expect(lines).toContain('- /status Show provider, session, and MCP status')
     expect(lines).toContain('- /exit Exit the REPL')
   })
@@ -1316,16 +1318,19 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines[0]).toBe('Recent persisted Codex REPL sessions: 2')
-    expect(lines.slice(1)).toContainEqual(
+    expect(lines[1]).toBe('Page: 1/1 page-size=10')
+    expect(lines[2]).toBe('Current directory priority: not applied')
+    expect(lines[3]).toBe('Filters: provider=codex')
+    expect(lines.slice(4)).toContainEqual(
       expect.stringContaining('- session_new cwd=/tmp/project-new'),
     )
-    expect(lines.slice(1)).toContainEqual(
+    expect(lines.slice(4)).toContainEqual(
       expect.stringContaining('model=gpt-5.4'),
     )
-    expect(lines.slice(1)).toContainEqual(
+    expect(lines.slice(4)).toContainEqual(
       expect.stringContaining('- session_old cwd=/tmp/project-old'),
     )
-    expect(lines.slice(1)).toContainEqual(
+    expect(lines.slice(4)).toContainEqual(
       expect.stringContaining('model=gpt-5-codex'),
     )
   })
@@ -1348,6 +1353,247 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toEqual(['Recent persisted Codex REPL sessions: none'])
+  })
+
+  it('prioritizes sessions from the current directory by default for /sessions', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'session_old',
+        cwd: '/tmp/project-old',
+        conversationId: 'session_old',
+        lastResponseId: 'resp_old',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5-codex',
+        },
+      },
+      {
+        cwd: '/tmp/project-old',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'session_new',
+        cwd: '/tmp/project-new',
+        conversationId: 'session_new',
+        lastResponseId: 'resp_new',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5.4',
+        },
+      },
+      {
+        cwd: '/tmp/project-new',
+      },
+    )
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession({
+        cwd: '/tmp/project-old',
+      }),
+      prompt: '/sessions',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines[2]).toBe(
+      'Current directory priority: applied (/tmp/project-old)',
+    )
+    expect(lines[4]).toContain('- session_old cwd=/tmp/project-old')
+    expect(lines[5]).toContain('- session_new cwd=/tmp/project-new')
+  })
+
+  it('supports filtering and pagination for /sessions', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'alpha_repo_state',
+        cwd: '/tmp/alpha-repo',
+        conversationId: 'alpha_repo_state',
+        lastResponseId: 'resp_alpha',
+        updatedAt: '2026-04-09T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5.4',
+        },
+      },
+      {
+        cwd: '/tmp/alpha-repo',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'beta_repo_state',
+        cwd: '/tmp/beta-repo',
+        conversationId: 'beta_repo_state',
+        lastResponseId: 'resp_beta',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5-mini',
+        },
+      },
+      {
+        cwd: '/tmp/beta-repo',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'gamma_notes_state',
+        cwd: '/tmp/gamma-notes',
+        conversationId: 'gamma_notes_state',
+        lastResponseId: 'resp_gamma',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5.4',
+        },
+      },
+      {
+        cwd: '/tmp/gamma-notes',
+      },
+    )
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/sessions --provider all --query repo --page-size 1 --page 2',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toEqual([
+      'Recent persisted Codex REPL sessions: 2',
+      'Page: 2/2 page-size=1',
+      'Current directory priority: not applied',
+      'Filters: provider=all query=repo',
+      expect.stringContaining('- alpha_repo_state cwd=/tmp/alpha-repo'),
+    ])
+  })
+
+  it('filters /sessions by explicit cwd', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'project_a_state',
+        cwd: '/tmp/project-a',
+        conversationId: 'project_a_state',
+        lastResponseId: 'resp_a',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5.4',
+        },
+      },
+      {
+        cwd: '/tmp/project-a',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'project_b_state',
+        cwd: '/tmp/project-b',
+        conversationId: 'project_b_state',
+        lastResponseId: 'resp_b',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5.4',
+        },
+      },
+      {
+        cwd: '/tmp/project-b',
+      },
+    )
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession({
+        cwd: '/tmp/project-b',
+      }),
+      prompt: '/sessions --cwd /tmp/project-a',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines[0]).toBe('Recent persisted Codex REPL sessions: 1')
+    expect(lines[2]).toBe('Current directory priority: not applied')
+    expect(lines[3]).toBe('Filters: provider=codex cwd=/tmp/project-a')
+    expect(lines[4]).toContain('- project_a_state cwd=/tmp/project-a')
+  })
+
+  it('fails fast for invalid /sessions pagination input', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const errors: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/sessions --page 0',
+      writeError: message => errors.push(message),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(errors).toEqual([
+      'Codex REPL /sessions --page must be a positive integer. Usage: /sessions [--cwd <path>] [--provider codex|all] [--query <keyword>] [--page <n>] [--page-size <n>]',
+    ])
+  })
+
+  it('fails fast for out-of-range /sessions page-size and unsupported provider', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const errors: string[] = []
+    await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/sessions --page-size 100',
+      writeError: message => errors.push(message),
+    })
+    await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/sessions --provider anthropic',
+      writeError: message => errors.push(message),
+    })
+
+    expect(errors).toEqual([
+      'Codex REPL /sessions --page-size must be between 1 and 50. Usage: /sessions [--cwd <path>] [--provider codex|all] [--query <keyword>] [--page <n>] [--page-size <n>]',
+      'Codex REPL /sessions does not yet support --provider anthropic. Use --provider codex or --provider all.',
+    ])
   })
 
   it('resumes persisted state with /resume <state-id>', async () => {

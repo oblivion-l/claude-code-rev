@@ -4,6 +4,7 @@ import { getSessionId } from 'src/bootstrap/state.js'
 import { hasPermissionsToUseTool } from 'src/utils/permissions/permissions.js'
 import { gracefulShutdown } from 'src/utils/gracefulShutdown.js'
 import { errorMessage, isAbortError } from 'src/utils/errors.js'
+import { parseArguments } from 'src/utils/argumentSubstitution.js'
 import type { Props as REPLProps } from 'src/screens/REPL.js'
 import type {
   ReplProvider,
@@ -108,6 +109,20 @@ type CodexReplSlashCommand =
       name: 'exit'
       argText: string
     }
+
+type CodexReplSessionsProviderFilter = 'codex' | 'all'
+
+type CodexReplSessionsCommandOptions = {
+  cwd?: string
+  provider: CodexReplSessionsProviderFilter
+  query?: string
+  page: number
+  pageSize: number
+}
+
+type CodexReplSessionsView = {
+  lines: string[]
+}
 
 function accumulateCodexUsage(
   totalUsage: NonNullableUsage,
@@ -221,6 +236,13 @@ function isSlashCommand(input: string): boolean {
 }
 
 const CODEX_REPL_MODEL_METADATA_KEY = 'codexModel'
+const CODEX_REPL_SESSIONS_DEFAULT_PAGE = 1
+const CODEX_REPL_SESSIONS_DEFAULT_PAGE_SIZE = 10
+const CODEX_REPL_SESSIONS_MAX_PAGE_SIZE = 50
+
+function getCodexReplSessionsUsage(): string {
+  return 'Usage: /sessions [--cwd <path>] [--provider codex|all] [--query <keyword>] [--page <n>] [--page-size <n>]'
+}
 
 function getCodexReplInteractiveResumePickerUnsupportedMessage(): string {
   return 'Codex REPL does not support the interactive resume picker. Pass an explicit persisted resume id to --resume.'
@@ -542,6 +564,228 @@ function formatCodexReplLastSavedAt(
   return state.updatedAt ?? 'not saved yet'
 }
 
+function parsePositiveInteger(
+  rawValue: string,
+  optionName: '--page' | '--page-size',
+): number {
+  if (!/^\d+$/.test(rawValue)) {
+    throw new Error(
+      `Codex REPL /sessions ${optionName} must be a positive integer. ${getCodexReplSessionsUsage()}`,
+    )
+  }
+
+  const value = Number.parseInt(rawValue, 10)
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(
+      `Codex REPL /sessions ${optionName} must be a positive integer. ${getCodexReplSessionsUsage()}`,
+    )
+  }
+
+  return value
+}
+
+function parseCodexReplSessionsCommandOptions(
+  argText: string,
+): CodexReplSessionsCommandOptions {
+  const tokens = parseArguments(argText)
+  const options: CodexReplSessionsCommandOptions = {
+    provider: 'codex',
+    page: CODEX_REPL_SESSIONS_DEFAULT_PAGE,
+    pageSize: CODEX_REPL_SESSIONS_DEFAULT_PAGE_SIZE,
+  }
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (!token?.startsWith('--')) {
+      throw new Error(
+        `Unknown Codex REPL /sessions argument "${token}". ${getCodexReplSessionsUsage()}`,
+      )
+    }
+
+    const nextValue = tokens[index + 1]
+    switch (token) {
+      case '--cwd':
+        if (!nextValue) {
+          throw new Error(
+            `Codex REPL /sessions ${token} requires a path value. ${getCodexReplSessionsUsage()}`,
+          )
+        }
+        options.cwd = nextValue
+        index += 1
+        break
+      case '--provider':
+        if (!nextValue) {
+          throw new Error(
+            `Codex REPL /sessions ${token} requires a provider value. ${getCodexReplSessionsUsage()}`,
+          )
+        }
+        if (nextValue === 'anthropic') {
+          throw new Error(
+            'Codex REPL /sessions does not yet support --provider anthropic. Use --provider codex or --provider all.',
+          )
+        }
+        if (nextValue !== 'codex' && nextValue !== 'all') {
+          throw new Error(
+            `Codex REPL /sessions --provider must be codex or all. ${getCodexReplSessionsUsage()}`,
+          )
+        }
+        options.provider = nextValue
+        index += 1
+        break
+      case '--query':
+        if (!nextValue) {
+          throw new Error(
+            `Codex REPL /sessions ${token} requires a keyword value. ${getCodexReplSessionsUsage()}`,
+          )
+        }
+        options.query = nextValue
+        index += 1
+        break
+      case '--page':
+        if (!nextValue) {
+          throw new Error(
+            `Codex REPL /sessions ${token} requires a numeric value. ${getCodexReplSessionsUsage()}`,
+          )
+        }
+        options.page = parsePositiveInteger(nextValue, '--page')
+        index += 1
+        break
+      case '--page-size':
+        if (!nextValue) {
+          throw new Error(
+            `Codex REPL /sessions ${token} requires a numeric value. ${getCodexReplSessionsUsage()}`,
+          )
+        }
+        options.pageSize = parsePositiveInteger(nextValue, '--page-size')
+        index += 1
+        break
+      default:
+        throw new Error(
+          `Unknown Codex REPL /sessions option "${token}". ${getCodexReplSessionsUsage()}`,
+        )
+    }
+  }
+
+  if (options.pageSize > CODEX_REPL_SESSIONS_MAX_PAGE_SIZE) {
+    throw new Error(
+      `Codex REPL /sessions --page-size must be between 1 and ${CODEX_REPL_SESSIONS_MAX_PAGE_SIZE}. ${getCodexReplSessionsUsage()}`,
+    )
+  }
+
+  return options
+}
+
+function matchesCodexReplSessionsQuery(args: {
+  record: ReturnType<typeof listCodexReplStates>[number]
+  query?: string
+}): boolean {
+  const query = args.query?.trim().toLowerCase()
+  if (!query) {
+    return true
+  }
+
+  const fields = [
+    args.record.state.stateId,
+    args.record.state.cwd,
+    getCodexReplPersistedModel(args.record.state),
+  ]
+
+  return fields.some(
+    value => typeof value === 'string' && value.toLowerCase().includes(query),
+  )
+}
+
+function buildCodexReplSessionsView(args: {
+  options: CodexReplSessionsCommandOptions
+  currentCwd?: string
+}): CodexReplSessionsView {
+  const allRecords = listCodexReplStates({
+    limit: Number.MAX_SAFE_INTEGER,
+  })
+
+  const filteredRecords = allRecords.filter(record => {
+    if (args.options.cwd && record.state.cwd !== args.options.cwd) {
+      return false
+    }
+
+    if (args.options.provider === 'codex' || args.options.provider === 'all') {
+      return matchesCodexReplSessionsQuery({
+        record,
+        query: args.options.query,
+      })
+    }
+
+    return false
+  })
+
+  const currentCwdPriorityApplied = Boolean(
+    args.currentCwd && !args.options.cwd && filteredRecords.length > 0,
+  )
+  const sortedRecords = [...filteredRecords].sort((left, right) => {
+    if (currentCwdPriorityApplied) {
+      const leftMatches = left.state.cwd === args.currentCwd
+      const rightMatches = right.state.cwd === args.currentCwd
+      if (leftMatches !== rightMatches) {
+        return leftMatches ? -1 : 1
+      }
+    }
+
+    const leftTime =
+      Date.parse(left.state.updatedAt ?? left.state.createdAt ?? '') || 0
+    const rightTime =
+      Date.parse(right.state.updatedAt ?? right.state.createdAt ?? '') || 0
+
+    if (leftTime !== rightTime) {
+      return rightTime - leftTime
+    }
+
+    return (right.state.stateId ?? '').localeCompare(left.state.stateId ?? '')
+  })
+
+  const totalRecords = sortedRecords.length
+  const totalPages = Math.max(
+    1,
+    Math.ceil(totalRecords / args.options.pageSize),
+  )
+  if (args.options.page > totalPages) {
+    throw new Error(
+      `Codex REPL /sessions page ${args.options.page} is out of range. There ${totalPages === 1 ? 'is' : 'are'} only ${totalPages} page${totalPages === 1 ? '' : 's'} for ${totalRecords} matching session${totalRecords === 1 ? '' : 's'}.`,
+    )
+  }
+
+  const startIndex = (args.options.page - 1) * args.options.pageSize
+  const pageRecords = sortedRecords.slice(
+    startIndex,
+    startIndex + args.options.pageSize,
+  )
+
+  if (totalRecords === 0 && !args.options.cwd && !args.options.query) {
+    return {
+      lines: ['Recent persisted Codex REPL sessions: none'],
+    }
+  }
+
+  const lines = [
+    `Recent persisted Codex REPL sessions: ${totalRecords}`,
+    `Page: ${args.options.page}/${totalPages} page-size=${args.options.pageSize}`,
+    `Current directory priority: ${currentCwdPriorityApplied ? `applied (${args.currentCwd})` : 'not applied'}`,
+    `Filters: provider=${args.options.provider}${args.options.cwd ? ` cwd=${args.options.cwd}` : ''}${args.options.query ? ` query=${args.options.query}` : ''}`,
+  ]
+
+  if (totalRecords === 0) {
+    lines.push('No persisted Codex REPL sessions matched the current filters.')
+    return { lines }
+  }
+
+  for (const record of pageRecords) {
+    lines.push(
+      `- ${record.state.stateId ?? 'unknown'} cwd=${record.state.cwd ?? 'unknown'} time=${record.state.updatedAt ?? record.state.createdAt ?? 'unknown'} model=${getCodexReplPersistedModel(record.state) ?? 'unknown'}`,
+    )
+  }
+
+  return { lines }
+}
+
 function formatCodexReplFunctionToolLine(args: {
   tool: NonNullable<CodexToolRuntime['tools']>[number]
   runtime?: CodexToolRuntime
@@ -669,7 +913,9 @@ async function handleCodexReplSlashCommand(args: {
       args.writeLine(
         '- /new Start a new persisted conversation state with the current configuration',
       )
-      args.writeLine('- /sessions List recent persisted conversation states')
+      args.writeLine(
+        '- /sessions [options] List recent persisted conversation states with filtering and pagination',
+      )
       args.writeLine('- /status Show provider, session, and MCP status')
       args.writeLine(
         '- /resume [state-id] Load persisted conversation state for the current directory or an explicit state id',
@@ -685,20 +931,19 @@ async function handleCodexReplSlashCommand(args: {
       return { kind: 'continue' }
     }
     case 'sessions': {
-      const sessionRecords = listCodexReplStates()
-      if (sessionRecords.length === 0) {
-        args.writeLine('Recent persisted Codex REPL sessions: none')
-        return { kind: 'continue' }
+      try {
+        const options = parseCodexReplSessionsCommandOptions(command.argText)
+        const view = buildCodexReplSessionsView({
+          options,
+          currentCwd: args.session.cwd,
+        })
+        for (const line of view.lines) {
+          args.writeLine(line)
+        }
+      } catch (error) {
+        args.writeError(formatCodexReplError(error))
       }
 
-      args.writeLine(
-        `Recent persisted Codex REPL sessions: ${sessionRecords.length}`,
-      )
-      for (const record of sessionRecords) {
-        args.writeLine(
-          `- ${record.state.stateId ?? 'unknown'} cwd=${record.state.cwd ?? 'unknown'} time=${record.state.updatedAt ?? record.state.createdAt ?? 'unknown'} model=${getCodexReplPersistedModel(record.state) ?? 'unknown'}`,
-        )
-      }
       return { kind: 'continue' }
     }
     case 'model':

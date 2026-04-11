@@ -1022,6 +1022,10 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Codex REPL commands:')
+    expect(lines).toContain(
+      '- /new Start a new persisted conversation state with the current configuration',
+    )
+    expect(lines).toContain('- /sessions List recent persisted conversation states')
     expect(lines).toContain('- /status Show provider, session, and MCP status')
     expect(lines).toContain('- /exit Exit the REPL')
   })
@@ -1106,6 +1110,10 @@ describe('createCodexReplSession', () => {
       'Persisted conversation state: conversation state is available for the current directory.',
     )
     expect(lines).toContain(
+      `State file path: ${join(configDir, 'codex-repl', 'states', 'status_state_1.json')}`,
+    )
+    expect(lines).toContain('Last saved at: not saved yet')
+    expect(lines).toContain(
       'MCP bridge servers: 2 total (1 connected, 0 pending, 1 failed, 0 needs-auth, 0 disabled)',
     )
     expect(lines).toContain(
@@ -1169,6 +1177,135 @@ describe('createCodexReplSession', () => {
     )
   })
 
+  it('starts a fresh conversation for /new and preserves configuration', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.CODEX_MODEL = 'gpt-5.4'
+    resetHooksConfigSnapshot()
+
+    const session = createCodexReplSession({
+      cwd: '/tmp/new-session-project',
+      conversationState: {
+        providerId: 'codex-repl',
+        stateId: 'old_state_1',
+        cwd: '/tmp/new-session-project',
+        conversationId: 'old_state_1',
+        lastResponseId: 'resp_old_1',
+        history: [
+          {
+            assistantMessageUuid: 'msg_old_1',
+            responseId: 'resp_old_1',
+            createdAt: '2026-04-10T00:00:00.000Z',
+          },
+        ],
+      },
+    })
+    const lines: string[] = []
+    const persistedStates: CodexReplTurnResult['conversationState'][] = []
+
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/new',
+      writeLine: message => lines.push(message ?? ''),
+      persistState: state => persistedStates.push(state),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatch(/^Started new persisted conversation state .+\.$/)
+    expect(session.state.stateId).not.toBe('old_state_1')
+    expect(session.state.lastResponseId).toBeUndefined()
+    expect(session.state.history).toEqual([])
+    expect(session.state.metadata).toEqual(
+      expect.objectContaining({
+        codexModel: 'gpt-5.4',
+      }),
+    )
+    expect(persistedStates).toHaveLength(1)
+    expect(persistedStates[0]?.stateId).toBe(session.state.stateId)
+  })
+
+  it('lists recent persisted sessions for /sessions', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'session_old',
+        cwd: '/tmp/project-old',
+        conversationId: 'session_old',
+        lastResponseId: 'resp_old',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5-codex',
+        },
+      },
+      {
+        cwd: '/tmp/project-old',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'session_new',
+        cwd: '/tmp/project-new',
+        conversationId: 'session_new',
+        lastResponseId: 'resp_new',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+        metadata: {
+          codexModel: 'gpt-5.4',
+        },
+      },
+      {
+        cwd: '/tmp/project-new',
+      },
+    )
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/sessions',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines[0]).toBe('Recent persisted Codex REPL sessions: 2')
+    expect(lines[1]).toContain('- session_new cwd=/tmp/project-new')
+    expect(lines[1]).toContain('model=gpt-5.4')
+    expect(lines[2]).toContain('- session_old cwd=/tmp/project-old')
+    expect(lines[2]).toContain('model=gpt-5-codex')
+  })
+
+  it('shows an empty message when no persisted sessions exist for /sessions', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/sessions',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toEqual(['Recent persisted Codex REPL sessions: none'])
+  })
+
   it('resumes persisted state with /resume <state-id>', async () => {
     configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
@@ -1229,6 +1366,43 @@ describe('createCodexReplSession', () => {
     expect(persistedStates[0]?.stateId).toBe('resume_state_1')
   })
 
+  it('uses the same success wording for /resume without an explicit state id', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'resume_state_cwd',
+        cwd: '/tmp/resume-by-cwd',
+        conversationId: 'resume_state_cwd',
+        lastResponseId: 'resp_resume_cwd',
+      },
+      {
+        cwd: '/tmp/resume-by-cwd',
+      },
+    )
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession({
+        cwd: '/tmp/resume-by-cwd',
+      }),
+      prompt: '/resume',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toEqual([
+      'Resumed persisted conversation state resume_state_cwd (last response resp_resume_cwd).',
+    ])
+  })
+
   it('surfaces readable resume errors for /resume', async () => {
     configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
@@ -1244,6 +1418,30 @@ describe('createCodexReplSession', () => {
         cwd: '/tmp/missing-project',
       }),
       prompt: '/resume',
+      writeError: message => errors.push(message),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(errors).toEqual([
+      'Codex REPL resume requested but no persisted conversation state is available.',
+    ])
+  })
+
+  it('uses the same readable missing-state error for /resume <state-id>', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const errors: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession({
+        cwd: '/tmp/missing-project',
+      }),
+      prompt: '/resume missing_state_id',
       writeError: message => errors.push(message),
     })
 

@@ -46,6 +46,8 @@ import {
 } from './stream.js'
 import type { CodexMcpTool, CodexRuntimeConfig } from './types.js'
 import {
+  getCodexReplStateFilePath,
+  listCodexReplStates,
   type CodexReplPersistedState,
   getCodexReplState,
   setCodexReplState,
@@ -92,7 +94,14 @@ export type CodexReplPromptOutcome =
 
 type CodexReplSlashCommand =
   | {
-      name: 'help' | 'status' | 'resume' | 'model' | 'tools'
+      name:
+        | 'help'
+        | 'status'
+        | 'resume'
+        | 'model'
+        | 'tools'
+        | 'new'
+        | 'sessions'
       argText: string
     }
   | {
@@ -211,6 +220,8 @@ function isSlashCommand(input: string): boolean {
   return input.trimStart().startsWith('/')
 }
 
+const CODEX_REPL_MODEL_METADATA_KEY = 'codexModel'
+
 function getCodexReplInteractiveResumePickerUnsupportedMessage(): string {
   return 'Codex REPL does not support the interactive resume picker. Pass an explicit persisted resume id to --resume.'
 }
@@ -260,6 +271,8 @@ function parseCodexReplSlashCommand(
     case 'resume':
     case 'model':
     case 'tools':
+    case 'new':
+    case 'sessions':
     case 'exit':
     case 'quit':
       return {
@@ -345,15 +358,29 @@ function resolveCodexReplPersistedStateForResume(options: {
   cwd?: string
   stateId?: string
 }): CodexReplPersistedState {
-  const state = options.stateId
-    ? getCodexReplState({
-        stateId: options.stateId,
-      })
-    : options.cwd
+  let state: CodexReplPersistedState | null = null
+
+  try {
+    state = options.stateId
       ? getCodexReplState({
-          cwd: options.cwd,
+          stateId: options.stateId,
         })
-      : null
+      : options.cwd
+        ? getCodexReplState({
+            cwd: options.cwd,
+          })
+        : null
+  } catch (error) {
+    const message = errorMessage(error)
+    if (
+      message.startsWith('No persisted codex-repl conversation state was found') ||
+      message.startsWith('Persisted codex-repl latest-conversation pointer')
+    ) {
+      throw new Error(getCodexReplResumeMissingStateMessage())
+    }
+
+    throw error
+  }
 
   if (!state?.lastResponseId) {
     throw new Error(getCodexReplResumeMissingStateMessage())
@@ -374,6 +401,54 @@ function summarizeCodexReplPersistedConversationState(
   }
 
   return 'Persisted conversation state: conversation state is available for the current directory.'
+}
+
+function getCodexReplPersistedModel(
+  state?: Pick<CodexReplConversationState, 'metadata'> | null,
+): string | undefined {
+  const value = state?.metadata?.[CODEX_REPL_MODEL_METADATA_KEY]
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function withCodexReplModelMetadata(args: {
+  state: CodexReplConversationState
+  model: string
+}): CodexReplConversationState {
+  return {
+    ...args.state,
+    metadata: {
+      ...(args.state.metadata ?? {}),
+      [CODEX_REPL_MODEL_METADATA_KEY]: args.model,
+    },
+  }
+}
+
+function formatCodexReplResumeSuccessMessage(
+  state: CodexReplPersistedState | CodexReplConversationState,
+): string {
+  return `Resumed persisted conversation state ${state.stateId}${state.lastResponseId ? ` (last response ${state.lastResponseId})` : ''}.`
+}
+
+function formatCodexReplNewSessionMessage(
+  state: CodexReplConversationState,
+): string {
+  return `Started new persisted conversation state ${state.stateId}.`
+}
+
+function formatCodexReplStateFilePath(
+  state: Pick<CodexReplConversationState, 'stateId'>,
+): string {
+  if (!state.stateId) {
+    return 'unavailable'
+  }
+
+  return getCodexReplStateFilePath(state.stateId)
+}
+
+function formatCodexReplLastSavedAt(
+  state: Pick<CodexReplConversationState, 'updatedAt'>,
+): string {
+  return state.updatedAt ?? 'not saved yet'
 }
 
 function summarizeCodexReplFunctionTools(args: {
@@ -452,6 +527,10 @@ async function handleCodexReplSlashCommand(args: {
     case 'help':
       args.writeLine('Codex REPL commands:')
       args.writeLine('- /help Show available REPL commands')
+      args.writeLine(
+        '- /new Start a new persisted conversation state with the current configuration',
+      )
+      args.writeLine('- /sessions List recent persisted conversation states')
       args.writeLine('- /status Show provider, session, and MCP status')
       args.writeLine(
         '- /resume [state-id] Load persisted conversation state for the current directory or an explicit state id',
@@ -460,6 +539,29 @@ async function handleCodexReplSlashCommand(args: {
       args.writeLine('- /tools Show local, MCP bridge, and remote MCP tool visibility')
       args.writeLine('- /exit Exit the REPL')
       return { kind: 'continue' }
+    case 'new': {
+      const newState = args.session.startNewConversation()
+      args.persistState(newState)
+      args.writeLine(formatCodexReplNewSessionMessage(newState))
+      return { kind: 'continue' }
+    }
+    case 'sessions': {
+      const sessionRecords = listCodexReplStates()
+      if (sessionRecords.length === 0) {
+        args.writeLine('Recent persisted Codex REPL sessions: none')
+        return { kind: 'continue' }
+      }
+
+      args.writeLine(
+        `Recent persisted Codex REPL sessions: ${sessionRecords.length}`,
+      )
+      for (const record of sessionRecords) {
+        args.writeLine(
+          `- ${record.state.stateId ?? 'unknown'} cwd=${record.state.cwd ?? 'unknown'} time=${record.state.updatedAt ?? record.state.createdAt ?? 'unknown'} model=${getCodexReplPersistedModel(record.state) ?? 'unknown'}`,
+        )
+      }
+      return { kind: 'continue' }
+    }
     case 'model':
       args.writeLine(`Provider: Codex`)
       args.writeLine(`Model: ${args.session.model}`)
@@ -491,9 +593,7 @@ async function handleCodexReplSlashCommand(args: {
 
         args.session.replaceConversationState(resumeState)
         args.persistState(args.session.state)
-        args.writeLine(
-          `Resumed persisted conversation state ${resumeState.stateId}${resumeState.lastResponseId ? ` (last response ${resumeState.lastResponseId})` : ''}.`,
-        )
+        args.writeLine(formatCodexReplResumeSuccessMessage(args.session.state))
       } catch (error) {
         args.writeError(formatCodexReplError(error))
       }
@@ -723,24 +823,27 @@ export class CodexReplSession {
   ) {
     this.config = getCodexRuntimeConfig(this.options.userSpecifiedModel)
     this.instructions = buildInstructions(this.options)
-    this.conversationState = {
-      providerId: 'codex-repl',
-      version: this.options.conversationState?.version,
-      stateId:
-        this.options.conversationState?.stateId ?? getSessionId(),
-      cwd: this.options.cwd ?? this.options.conversationState?.cwd,
-      createdAt: this.options.conversationState?.createdAt,
-      updatedAt: this.options.conversationState?.updatedAt,
-      conversationId:
-        this.options.conversationState?.conversationId ??
-        this.options.conversationState?.stateId ??
-        getSessionId(),
-      lastResponseId: this.options.conversationState?.lastResponseId,
-      lastAssistantMessageUuid:
-        this.options.conversationState?.lastAssistantMessageUuid,
-      metadata: this.options.conversationState?.metadata,
-      history: this.options.conversationState?.history ?? [],
-    }
+    this.conversationState = withCodexReplModelMetadata({
+      state: {
+        providerId: 'codex-repl',
+        version: this.options.conversationState?.version,
+        stateId:
+          this.options.conversationState?.stateId ?? getSessionId(),
+        cwd: this.options.cwd ?? this.options.conversationState?.cwd,
+        createdAt: this.options.conversationState?.createdAt,
+        updatedAt: this.options.conversationState?.updatedAt,
+        conversationId:
+          this.options.conversationState?.conversationId ??
+          this.options.conversationState?.stateId ??
+          getSessionId(),
+        lastResponseId: this.options.conversationState?.lastResponseId,
+        lastAssistantMessageUuid:
+          this.options.conversationState?.lastAssistantMessageUuid,
+        metadata: this.options.conversationState?.metadata,
+        history: this.options.conversationState?.history ?? [],
+      },
+      model: this.config.model,
+    })
     this.discoveredToolNames = getCodexDiscoveredToolNames(
       this.options.conversationState,
     )
@@ -765,26 +868,51 @@ export class CodexReplSession {
   replaceConversationState(
     state: CodexReplConversationState | CodexReplPersistedState,
   ): void {
-    this.conversationState = {
-      providerId: 'codex-repl',
-      version: state.version,
-      stateId: state.stateId ?? this.conversationState.stateId,
-      cwd: state.cwd ?? this.cwd,
-      createdAt: state.createdAt ?? this.conversationState.createdAt,
-      updatedAt: state.updatedAt ?? this.conversationState.updatedAt,
-      conversationId:
-        state.conversationId ??
-        state.stateId ??
-        this.conversationState.conversationId,
-      lastResponseId: state.lastResponseId,
-      lastAssistantMessageUuid: state.lastAssistantMessageUuid,
-      metadata: state.metadata,
-      history: state.history ?? [],
-    }
+    this.conversationState = withCodexReplModelMetadata({
+      state: {
+        providerId: 'codex-repl',
+        version: state.version,
+        stateId: state.stateId ?? this.conversationState.stateId,
+        cwd: state.cwd ?? this.cwd,
+        createdAt: state.createdAt ?? this.conversationState.createdAt,
+        updatedAt: state.updatedAt ?? this.conversationState.updatedAt,
+        conversationId:
+          state.conversationId ??
+          state.stateId ??
+          this.conversationState.conversationId,
+        lastResponseId: state.lastResponseId,
+        lastAssistantMessageUuid: state.lastAssistantMessageUuid,
+        metadata: state.metadata,
+        history: state.history ?? [],
+      },
+      model: this.model,
+    })
     this.discoveredToolNames.clear()
     for (const toolName of getCodexDiscoveredToolNames(state)) {
       this.discoveredToolNames.add(toolName)
     }
+  }
+
+  startNewConversation(): CodexReplConversationState {
+    const stateId = randomUUID()
+    const createdAt = new Date().toISOString()
+
+    this.discoveredToolNames.clear()
+    this.conversationState = withCodexReplModelMetadata({
+      state: {
+        providerId: 'codex-repl',
+        version: this.conversationState.version,
+        stateId,
+        cwd: this.cwd,
+        createdAt,
+        updatedAt: createdAt,
+        conversationId: stateId,
+        history: [],
+      },
+      model: this.model,
+    })
+
+    return this.state
   }
 
   describeStatusLines(): string[] {
@@ -797,6 +925,8 @@ export class CodexReplSession {
       `Conversation id: ${this.conversationState.conversationId ?? 'unavailable'}`,
       `Current working directory: ${this.cwd ?? 'unavailable'}`,
       summarizeCodexReplPersistedConversationState(this.conversationState),
+      `State file path: ${formatCodexReplStateFilePath(this.conversationState)}`,
+      `Last saved at: ${formatCodexReplLastSavedAt(this.conversationState)}`,
       `Assistant turns: ${historyLength}`,
       `Last response id: ${this.conversationState.lastResponseId ?? 'none'}`,
     ]

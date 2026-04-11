@@ -477,6 +477,12 @@ export class CodexReplSession {
         completedFinalRound = true
         break
       }
+    } catch (error) {
+      this.conversationState = withCodexDiscoveredToolNames({
+        state: this.conversationState,
+        discoveredToolNames: this.discoveredToolNames,
+      })
+      throw error
     } finally {
       cleanup()
     }
@@ -654,6 +660,9 @@ export async function runCodexRepl(
 
         writeLine()
       } catch (error) {
+        setCodexReplState(session.state, {
+          cwd: session.state.cwd,
+        })
         writeError(formatCodexReplError(error))
         return 1
       } finally {

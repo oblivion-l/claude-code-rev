@@ -813,4 +813,102 @@ describe('createCodexReplSession', () => {
       'Codex MCP tools are not supported for model gpt-5-codex or this API parameter set: Unsupported parameter: tools[0].type',
     )
   })
+
+  it('retains discovered tool state when a later REPL round fails', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    resetHooksConfigSnapshot()
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    let requestCount = 0
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestCount += 1
+
+      if (requestCount === 1) {
+        expect(requestBody.tools).toEqual([
+          expect.objectContaining({
+            type: 'function',
+            name: 'ToolSearch',
+          }),
+        ])
+
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_search',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'ToolSearch',
+                  call_id: 'call_tool_search',
+                  arguments: '{"query":"select:mcp__docs__search"}',
+                },
+              ],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      expect(requestBody.tools).toEqual([
+        expect.objectContaining({
+          type: 'function',
+          name: 'ToolSearch',
+        }),
+        expect.objectContaining({
+          type: 'function',
+          name: 'mcp__docs__search',
+        }),
+      ])
+
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'Unsupported parameter: tools[1].type',
+            param: 'tools[1].type',
+            code: 'unsupported_parameter',
+          },
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }
+
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [createConnectedMcpClient('docs')],
+      ),
+    })
+
+    await expect(collectTurn(session, 'discover docs then fail')).rejects.toThrow(
+      'Codex locally bridged MCP tools are not supported for model gpt-5-codex or this API parameter set: Unsupported parameter: tools[1].type',
+    )
+
+    expect(session.state.metadata).toEqual(
+      expect.objectContaining({
+        codexDiscoveredToolNames: ['mcp__docs__search'],
+      }),
+    )
+  })
 })

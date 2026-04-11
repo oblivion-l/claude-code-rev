@@ -75,6 +75,15 @@ export type CodexReplTurnResult = {
   conversationState: CodexReplConversationState
 }
 
+export type CodexReplPromptOutcome =
+  | {
+      kind: 'continue'
+    }
+  | {
+      kind: 'exit'
+      exitCode: number
+    }
+
 function accumulateCodexUsage(
   totalUsage: NonNullableUsage,
   roundUsage: NonNullableUsage,
@@ -184,6 +193,83 @@ function isExitCommand(input: string): boolean {
 
 function isSlashCommand(input: string): boolean {
   return input.trimStart().startsWith('/')
+}
+
+export async function handleCodexReplPrompt(args: {
+  session: CodexReplSession
+  prompt: string
+  signal?: AbortSignal
+  writeStdout?: (text: string) => void
+  writeLine?: (message?: string) => void
+  writeError?: (message: string) => void
+  persistState?: (state: CodexReplConversationState) => void
+}): Promise<CodexReplPromptOutcome> {
+  const prompt = args.prompt.trim()
+  const emitStdout = args.writeStdout ?? (text => process.stdout.write(text))
+  const emitLine = args.writeLine ?? writeLine
+  const emitError = args.writeError ?? writeError
+  const persistState =
+    args.persistState ??
+    (state => {
+      setCodexReplState(state, {
+        cwd: state.cwd,
+      })
+    })
+
+  if (!prompt) {
+    return { kind: 'continue' }
+  }
+
+  if (isExitCommand(prompt)) {
+    return {
+      kind: 'exit',
+      exitCode: 0,
+    }
+  }
+
+  if (isSlashCommand(prompt)) {
+    emitError('Codex REPL currently only supports text prompts and /exit.')
+    return { kind: 'continue' }
+  }
+
+  const iterator = args.session.submitTurn(prompt, args.signal)
+  let result: CodexReplTurnResult | undefined
+  let streamedText = ''
+
+  try {
+    for (;;) {
+      const next = await iterator.next()
+      if (next.done) {
+        result = next.value
+        break
+      }
+
+      if (next.value.type === 'assistant.delta') {
+        streamedText += next.value.delta
+        emitStdout(next.value.delta)
+      }
+    }
+
+    if (!streamedText && result?.responseText) {
+      emitStdout(result.responseText)
+    }
+
+    if (!result?.responseText.endsWith('\n')) {
+      emitLine()
+    }
+
+    persistState(result.conversationState)
+    emitLine()
+    return { kind: 'continue' }
+  } catch (error) {
+    persistState(args.session.state)
+    if (streamedText && !streamedText.endsWith('\n')) {
+      emitLine()
+    }
+    emitError(formatCodexReplError(error))
+    emitLine()
+    return { kind: 'continue' }
+  }
 }
 
 function resolveCodexReplStateId(
@@ -611,60 +697,19 @@ export async function runCodexRepl(
 
       const prompt = input.trim()
 
-      if (!prompt) {
-        continue
-      }
-
-      if (isExitCommand(prompt)) {
-        return 0
-      }
-
-      if (isSlashCommand(prompt)) {
-        writeError('Codex REPL currently only supports text prompts and /exit.')
-        continue
-      }
-
       const abortController = new AbortController()
       const sigintHandler = () => abortController.abort()
       process.on('SIGINT', sigintHandler)
 
       try {
-        const iterator = session.submitTurn(prompt, abortController.signal)
-        let result: CodexReplTurnResult | undefined
-        let streamedText = ''
-
-        for (;;) {
-          const next = await iterator.next()
-          if (next.done) {
-            result = next.value
-            break
-          }
-
-          if (next.value.type === 'assistant.delta') {
-            streamedText += next.value.delta
-            process.stdout.write(next.value.delta)
-          }
-        }
-
-        if (!streamedText && result?.responseText) {
-          process.stdout.write(result.responseText)
-        }
-
-        if (!result?.responseText.endsWith('\n')) {
-          writeLine()
-        }
-
-        setCodexReplState(result.conversationState, {
-          cwd: result.conversationState.cwd,
+        const outcome = await handleCodexReplPrompt({
+          session,
+          prompt,
+          signal: abortController.signal,
         })
-
-        writeLine()
-      } catch (error) {
-        setCodexReplState(session.state, {
-          cwd: session.state.cwd,
-        })
-        writeError(formatCodexReplError(error))
-        return 1
+        if (outcome.kind === 'exit') {
+          return outcome.exitCode
+        }
       } finally {
         process.off('SIGINT', sigintHandler)
       }

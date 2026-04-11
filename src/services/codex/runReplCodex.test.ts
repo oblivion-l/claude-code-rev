@@ -9,6 +9,7 @@ import { ToolSearchTool } from 'src/tools/ToolSearchTool/ToolSearchTool.js'
 import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js'
 import {
   createCodexReplSession,
+  handleCodexReplPrompt,
   type CodexReplTurnEvent,
   type CodexReplTurnResult,
 } from './runReplCodex.js'
@@ -910,5 +911,119 @@ describe('createCodexReplSession', () => {
         codexDiscoveredToolNames: ['mcp__docs__search'],
       }),
     )
+  })
+
+  it('continues the REPL after a failing prompt and allows the next prompt to succeed', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    let requestCount = 0
+    globalThis.fetch = async () => {
+      requestCount += 1
+
+      if (requestCount === 1) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: 'temporary upstream failure',
+            },
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          },
+        )
+      }
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_after_error',
+            output_text: 'Recovered turn',
+            usage: {
+              input_tokens: 4,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const session = createCodexReplSession()
+    const stdout: string[] = []
+    const stderr: string[] = []
+    const persistedStates: CodexReplTurnResult['conversationState'][] = []
+
+    const firstOutcome = await handleCodexReplPrompt({
+      session,
+      prompt: 'first prompt fails',
+      writeStdout: text => stdout.push(text),
+      writeLine: message => stdout.push((message ?? '') + '\n'),
+      writeError: message => stderr.push(message),
+      persistState: state => persistedStates.push(state),
+    })
+
+    const secondOutcome = await handleCodexReplPrompt({
+      session,
+      prompt: 'second prompt works',
+      writeStdout: text => stdout.push(text),
+      writeLine: message => stdout.push((message ?? '') + '\n'),
+      writeError: message => stderr.push(message),
+      persistState: state => persistedStates.push(state),
+    })
+
+    expect(firstOutcome).toEqual({ kind: 'continue' })
+    expect(secondOutcome).toEqual({ kind: 'continue' })
+    expect(stderr).toContain('Codex API error (500): temporary upstream failure')
+    expect(stdout.join('')).toContain('Recovered turn')
+    expect(persistedStates).toHaveLength(2)
+    expect(persistedStates[1]?.lastResponseId).toBe('resp_after_error')
+  })
+
+  it('treats slash commands as non-fatal prompt errors', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const errors: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/help',
+      writeError: message => errors.push(message),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(errors).toEqual([
+      'Codex REPL currently only supports text prompts and /exit.',
+    ])
+  })
+
+  it('returns an exit outcome for /exit', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/exit',
+    })
+
+    expect(outcome).toEqual({
+      kind: 'exit',
+      exitCode: 0,
+    })
   })
 })

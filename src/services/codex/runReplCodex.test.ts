@@ -567,6 +567,113 @@ describe('createCodexReplSession', () => {
     expect(result.responseId).toBe('resp_final')
   })
 
+  it('reuses discovered deferred tools on the next REPL turn', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    resetHooksConfigSnapshot()
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const requestBodies: Record<string, unknown>[] = []
+    let requestCount = 0
+
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestBodies.push(requestBody)
+      requestCount += 1
+
+      if (requestCount === 1) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_search',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'ToolSearch',
+                  call_id: 'call_tool_search',
+                  arguments: '{"query":"select:mcp__docs__search"}',
+                },
+              ],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      if (requestCount === 2) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_first_done',
+              output_text: 'Discovery stored',
+              usage: {
+                input_tokens: 4,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_second_turn',
+            output_text: 'Second turn ready',
+            usage: {
+              input_tokens: 3,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [createConnectedMcpClient('docs')],
+      ),
+    })
+
+    const firstTurn = await collectTurn(session, 'discover docs')
+    const secondTurn = await collectTurn(session, 'use remembered docs')
+
+    expect(firstTurn.result.conversationState.metadata).toEqual(
+      expect.objectContaining({
+        codexDiscoveredToolNames: ['mcp__docs__search'],
+      }),
+    )
+    expect(requestBodies[2]?.tools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'ToolSearch',
+      }),
+      expect.objectContaining({
+        type: 'function',
+        name: 'mcp__docs__search',
+      }),
+    ])
+    expect(secondTurn.result.responseText).toBe('Second turn ready')
+  })
+
   it('starts from persisted state when a previous response id is provided', async () => {
     configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir

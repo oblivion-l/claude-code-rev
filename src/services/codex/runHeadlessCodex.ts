@@ -31,6 +31,10 @@ import {
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
 import {
+  getCodexDiscoveredToolNames,
+  withCodexDiscoveredToolNames,
+} from './discoveredTools.js'
+import {
   extractCodexFunctionCalls,
 } from './toolBridge.js'
 import {
@@ -277,6 +281,9 @@ export async function runHeadlessCodex({
   const abortController = new AbortController()
   const sigintHandler = () => abortController.abort()
   process.on('SIGINT', sigintHandler)
+  const discoveredToolNames = getCodexDiscoveredToolNames(
+    continuationCheck.conversationState,
+  )
   const {
     requestPlan,
     requestTools: initialRequestTools,
@@ -286,8 +293,8 @@ export async function runHeadlessCodex({
     runtime,
     model: config.model,
     abortController,
+    discoveredToolNames,
   })
-  const discoveredToolNames = new Set<string>()
 
   let accumulatedText = ''
   let usage: NonNullableUsage = EMPTY_USAGE
@@ -470,22 +477,25 @@ export async function runHeadlessCodex({
 
     const assistantMessageUuid = randomUUID()
     if (responseIdForConversationState) {
-      nextConversationState = {
-        ...(nextConversationState ?? {}),
-        providerId: provider.metadata.id,
-        stateId: nextConversationState?.stateId ?? currentSessionId,
-        conversationId: nextConversationState?.conversationId ?? currentSessionId,
-        lastResponseId: responseIdForConversationState,
-        lastAssistantMessageUuid: assistantMessageUuid,
-        history: [
-          ...(nextConversationState?.history ?? []),
-          {
-            assistantMessageUuid,
-            responseId: responseIdForConversationState,
-            createdAt: new Date().toISOString(),
-          },
-        ],
-      }
+      nextConversationState = withCodexDiscoveredToolNames({
+        state: {
+          ...(nextConversationState ?? {}),
+          providerId: provider.metadata.id,
+          stateId: nextConversationState?.stateId ?? currentSessionId,
+          conversationId: nextConversationState?.conversationId ?? currentSessionId,
+          lastResponseId: responseIdForConversationState,
+          lastAssistantMessageUuid: assistantMessageUuid,
+          history: [
+            ...(nextConversationState?.history ?? []),
+            {
+              assistantMessageUuid,
+              responseId: responseIdForConversationState,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        },
+        discoveredToolNames,
+      })
     }
 
     const result = buildSuccessResult({

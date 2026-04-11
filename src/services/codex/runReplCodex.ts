@@ -24,6 +24,10 @@ import {
   parseCodexSSE,
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
+import {
+  getCodexDiscoveredToolNames,
+  withCodexDiscoveredToolNames,
+} from './discoveredTools.js'
 import { resolveCodexMcpTools } from './mcp.js'
 import {
   extractCompletedResponse,
@@ -310,6 +314,7 @@ export class CodexReplSession {
   private readonly instructions?: string
   private readonly config: CodexRuntimeConfig
   private conversationState: CodexReplConversationState
+  private readonly discoveredToolNames: Set<string>
 
   constructor(
     private readonly options: {
@@ -342,6 +347,9 @@ export class CodexReplSession {
       metadata: this.options.conversationState?.metadata,
       history: this.options.conversationState?.history ?? [],
     }
+    this.discoveredToolNames = getCodexDiscoveredToolNames(
+      this.options.conversationState,
+    )
   }
 
   get model(): string {
@@ -361,13 +369,13 @@ export class CodexReplSession {
     }
 
     const { abortController, cleanup } = createForwardingAbortController(signal)
-    const discoveredToolNames = new Set<string>()
     const orchestration = await prepareCodexToolOrchestration({
       mode: 'repl',
       runtime: this.options.runtime,
       mcpTools: this.options.mcpTools,
       model: this.config.model,
       abortController,
+      discoveredToolNames: this.discoveredToolNames,
     })
     const { requestPlan, functionToolExecutor } = orchestration
 
@@ -396,7 +404,7 @@ export class CodexReplSession {
                 runtime: this.options.runtime,
                 mcpTools: this.options.mcpTools,
                 model: this.config.model,
-                discoveredToolNames,
+                discoveredToolNames: this.discoveredToolNames,
               })
         const response = await createCodexResponseStream({
           config: this.config,
@@ -459,7 +467,7 @@ export class CodexReplSession {
           }).execute(functionCalls)
           currentInput = execution.outputs
           for (const toolName of execution.selectedToolNames) {
-            discoveredToolNames.add(toolName)
+            this.discoveredToolNames.add(toolName)
           }
           continue
         }
@@ -486,24 +494,27 @@ export class CodexReplSession {
     const assistantMessageUuid = responseId ? randomUUID() : undefined
     const createdAt = new Date().toISOString()
 
-    this.conversationState = {
-      ...this.conversationState,
-      providerId: 'codex-repl',
-      lastResponseId: responseId ?? this.conversationState.lastResponseId,
-      lastAssistantMessageUuid:
-        assistantMessageUuid ?? this.conversationState.lastAssistantMessageUuid,
-      history:
-        responseId && assistantMessageUuid
-          ? [
-              ...(this.conversationState.history ?? []),
-              {
-                assistantMessageUuid,
-                responseId,
-                createdAt,
-              },
-            ]
-          : this.conversationState.history,
-    }
+    this.conversationState = withCodexDiscoveredToolNames({
+      state: {
+        ...this.conversationState,
+        providerId: 'codex-repl',
+        lastResponseId: responseId ?? this.conversationState.lastResponseId,
+        lastAssistantMessageUuid:
+          assistantMessageUuid ?? this.conversationState.lastAssistantMessageUuid,
+        history:
+          responseId && assistantMessageUuid
+            ? [
+                ...(this.conversationState.history ?? []),
+                {
+                  assistantMessageUuid,
+                  responseId,
+                  createdAt,
+                },
+              ]
+            : this.conversationState.history,
+      },
+      discoveredToolNames: this.discoveredToolNames,
+    })
 
     return {
       responseText: accumulatedText,

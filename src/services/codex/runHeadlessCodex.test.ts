@@ -465,4 +465,127 @@ describe('runHeadlessCodex', () => {
       }),
     )
   })
+
+  it('reuses discovered deferred tools from conversation state in later headless runs', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const requestBodies: Record<string, unknown>[] = []
+    let requestCount = 0
+
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestBodies.push(requestBody)
+      requestCount += 1
+
+      if (requestCount === 1) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_search',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'ToolSearch',
+                  call_id: 'call_tool_search',
+                  arguments: '{"query":"select:mcp__docs__search"}',
+                },
+              ],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      if (requestCount === 2) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_first_done',
+              output_text: 'Discovery stored',
+              usage: {
+                input_tokens: 4,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_second_run',
+            output_text: 'Second run ready',
+            usage: {
+              input_tokens: 3,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const structuredIO = {
+      write: async (_message: unknown) => {},
+    }
+
+    const firstRun = await runHeadlessCodex({
+      inputPrompt: 'discover docs',
+      structuredIO: structuredIO as any,
+      options: {
+        outputFormat: 'stream-json',
+      } as any,
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [createConnectedMcpClient('docs')],
+      ),
+    })
+
+    const secondRun = await runHeadlessCodex({
+      inputPrompt: 'use remembered docs',
+      structuredIO: structuredIO as any,
+      options: {
+        outputFormat: 'stream-json',
+        continue: true,
+      } as any,
+      conversationState: firstRun.conversationState,
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [createConnectedMcpClient('docs')],
+      ),
+    })
+
+    expect(firstRun.conversationState?.metadata).toEqual(
+      expect.objectContaining({
+        codexDiscoveredToolNames: ['mcp__docs__search'],
+      }),
+    )
+    expect(requestBodies[2]?.tools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'ToolSearch',
+      }),
+      expect.objectContaining({
+        type: 'function',
+        name: 'mcp__docs__search',
+      }),
+    ])
+    expect(secondRun.exitCode).toBe(0)
+  })
 })

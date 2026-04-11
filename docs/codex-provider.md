@@ -27,6 +27,7 @@
 - Codex REPL 下最小本地开发工具闭环
 - Codex REPL 的同进程 `--continue`
 - Codex REPL 的持久化 `--resume <state-id>` / `--resume-session-at`
+- Codex REPL slash commands：`/help`、`/status`、`/resume`、`/model`、`/tools`、`/exit`
 - Codex REPL 下远程 MCP 直连
 - Codex REPL 下本地 bridge MCP 工具执行
 
@@ -267,6 +268,23 @@ export OPENAI_API_KEY=your_api_key
 bun run dev
 ```
 
+进入 REPL 后可直接使用以下 slash commands：
+
+- `/help`
+  - 查看当前 Codex REPL 支持的命令清单。
+- `/status`
+  - 查看当前 provider、model、base URL、session id、当前目录、conversation state，以及 MCP 连接状态。
+- `/resume`
+  - 按当前工作目录加载最近一次持久化的 Codex REPL conversation state。
+- `/resume <state-id>`
+  - 按显式 state id 加载持久化的 conversation state。
+- `/model`
+  - 查看当前实际使用的模型与 API base URL。
+- `/tools`
+  - 查看当前暴露给 Codex 的本地 function tools、bridge MCP 工具可见性、远程 MCP passthrough，以及 MCP bridge 连接状态。
+- `/exit`
+  - 退出当前 Codex REPL。
+
 带远程 MCP 配置的 Codex REPL：
 
 ```bash
@@ -288,6 +306,38 @@ bun run dev --mcp-config ./mcp.remote.json
 }
 ```
 
+REPL slash command 使用示例：
+
+```text
+codex> /help
+codex> /status
+codex> /model
+codex> /tools
+codex> /resume
+codex> /resume 4dfb5cb3-1fd8-4aa4-8d57-8caaf34f1b7b
+codex> /exit
+```
+
+`/status` 输出重点：
+
+- 当前 provider、model、API base URL
+- 当前 session id / conversation id
+- 当前目录是否存在可继续的持久化 conversation state
+- 本地 MCP bridge server 的连接状态统计
+- 每个 MCP server 的 transport、失败原因或鉴权状态
+- 远程 MCP passthrough server 列表
+
+`/tools` 输出重点：
+
+- 当前实际暴露给 Codex 的本地 function tools
+- 工具来源标记：
+  - `[local]`：本地开发工具
+  - `[tool-search]`：ToolSearch 本身
+  - `[mcp-bridge]`：通过本地 MCP client bridge 暴露给 Codex 的工具
+  - `[remote-mcp]`：直接透传给 Codex API 的远程 MCP server
+- deferred tools 是否仍隐藏，等待 ToolSearch 选择后再暴露
+- 本地 MCP bridge server 的连接状态和失败原因
+
 ## 验收说明
 
 完整的发布验收清单和逐条命令预期见 [codex-acceptance.md](./codex-acceptance.md)。
@@ -308,6 +358,13 @@ bun run dev --mcp-config ./mcp.remote.json
 - `--resume-session-at` 会在持久化的 assistant turn history 中查找目标 turn，并从该 turn 对应的 response id 继续
 - 当前默认持久化目录为 `~/.claude/headless-provider-state`
 - 如需定向覆盖，可设置 `CLAUDE_CODE_HEADLESS_STATE_DIR`
+
+当在 Codex REPL 中使用 `/resume` 时：
+
+- `/resume` 会按当前工作目录查找最近一次持久化的 Codex REPL state
+- `/resume <state-id>` 会按显式 state id 加载持久化 state
+- 若没有可用 state，会直接返回清晰错误，不会静默新建会话
+- `/status` 会使用与 headless 近似的 wording 提示当前目录是否已有可继续的 conversation state
 
 ## 常见错误
 
@@ -365,6 +422,16 @@ bun run dev --mcp-config ./mcp.remote.json
 
 - 说明当前 state 中不存在你指定的 assistant turn。
 - 这个值应来自此前 `json` 或 `stream-json` 输出中的 assistant 结果 `uuid`。
+
+`Codex REPL resume requested but no persisted conversation state is available.`
+
+- 说明你在 REPL 中执行了 `/resume` 或 `/resume <state-id>`，但没有找到对应的持久化 state。
+- 如果未传 `state-id`，先确认当前目录是否已有成功完成过的 Codex REPL 会话。
+
+`Unknown Codex REPL command "...". Use /help to see available commands.`
+
+- 说明输入了当前 Codex REPL 尚未支持的 slash command。
+- 先执行 `/help` 查看已支持命令，避免按 Anthropic 原版习惯输入未实现命令。
 
 API 侧 schema 拒绝或不支持关键字
 

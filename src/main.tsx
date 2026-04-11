@@ -84,7 +84,7 @@ import { isAnalyticsDisabled } from 'src/services/analytics/config.js';
 import { getFeatureValue_CACHED_MAY_BE_STALE } from 'src/services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
 import { initializeAnalyticsGates } from 'src/services/analytics/sink.js';
-import { resolveHeadlessProvider } from 'src/services/headless/providers.js';
+import { resolveHeadlessProvider, shouldSkipRemoteMcpBootstrapForHeadlessProvider } from 'src/services/headless/providers.js';
 import { resolveReplProvider } from 'src/services/repl/providers.js';
 import type { ReplProviderContext } from 'src/services/repl/context.js';
 import { getOriginalCwd, setAdditionalDirectoriesForClaudeMd, setIsRemoteMode, setMainLoopModelOverride, setMainThreadAgentType, setTeleportedSessionInfo } from './bootstrap/state.js';
@@ -119,6 +119,7 @@ import { safeParseJSON } from './utils/json.js';
 import { logError } from './utils/log.js';
 import { getModelDeprecationWarning } from './utils/model/deprecation.js';
 import { getDefaultMainLoopModel, getUserSpecifiedModelSetting, normalizeModelStringForAPI, parseUserSpecifiedModel } from './utils/model/model.js';
+import { hasPermissionsToUseTool } from './utils/permissions/permissions.js';
 import { ensureModelStringsInitialized } from './utils/model/modelStrings.js';
 import { PERMISSION_MODES } from './utils/permissions/PermissionMode.js';
 import { checkAndDisableBypassPermissions, getAutoModeEnabledStateIfCached, initializeToolPermissionContext, initialPermissionModeFromCLI, isDefaultPermissionModeAuto, parseToolListFromCLI, removeDangerousPermissions, stripDangerousPermissionsForAutoMode, verifyAutoModeGateAccess } from './utils/permissions/permissionSetup.js';
@@ -1341,6 +1342,8 @@ async function run(): Promise<CommanderCommand> {
 
     // Get isNonInteractiveSession from state (was set before init())
     const isNonInteractiveSession = getIsNonInteractiveSession();
+    const headlessProvider = isNonInteractiveSession ? resolveHeadlessProvider() : null;
+    const skipRemoteMcpForHeadlessProvider = shouldSkipRemoteMcpBootstrapForHeadlessProvider(headlessProvider);
 
     // Validate that fallback model is different from main model
     if (fallbackModel && options.model && fallbackModel === options.model) {
@@ -1794,7 +1797,7 @@ async function run(): Promise<CommanderCommand> {
     // --bare / SIMPLE: skip claude.ai proxy servers (datadog, Gmail,
     // Slack, BigQuery, PubMed — 6-14s each to connect). Scripted calls
     // that need MCP pass --mcp-config explicitly.
-    !isBareMode() ? fetchClaudeAIMcpConfigsIfEligible().then(configs => {
+    !isBareMode() && !skipRemoteMcpForHeadlessProvider ? fetchClaudeAIMcpConfigsIfEligible().then(configs => {
       const {
         allowed,
         blocked
@@ -2596,10 +2599,6 @@ async function run(): Promise<CommanderCommand> {
         setHasFormattedOutput(true);
       }
 
-      const headlessProvider = resolveHeadlessProvider();
-      const skipRemoteMcpForHeadlessProvider =
-        headlessProvider?.metadata.id === 'codex';
-
       // Apply full environment variables in print mode since trust dialog is bypassed
       // This includes potentially dangerous environment variables from untrusted sources
       // but print mode is considered trusted (as documented in help text)
@@ -2840,6 +2839,77 @@ async function run(): Promise<CommanderCommand> {
         }
       }
       logSessionTelemetry();
+      const canUseDirectHeadlessProvider = Boolean(
+        headlessProvider &&
+          headlessProvider.metadata.id === 'codex' &&
+          typeof inputPrompt === 'string' &&
+          !options.permissionPromptTool &&
+          !sdkUrl &&
+          !effectiveReplayUserMessages &&
+          !effectiveIncludePartialMessages &&
+          !options.forkSession &&
+          !options.rewindFiles &&
+          !agentCli
+      );
+
+      if (canUseDirectHeadlessProvider) {
+        profileCheckpoint('before_direct_headless_provider_import');
+        const {
+          runDirectHeadlessProvider
+        } = await import('src/services/headless/runDirect.js');
+        profileCheckpoint('after_direct_headless_provider_import');
+
+        const exitCode = await runDirectHeadlessProvider({
+          provider: headlessProvider!,
+          inputPrompt,
+          options: {
+            continue: options.continue,
+            resume: options.resume,
+            resumeSessionAt: options.resumeSessionAt || undefined,
+            outputFormat,
+            verbose,
+            jsonSchema,
+            systemPrompt,
+            appendSystemPrompt,
+            userSpecifiedModel: effectiveModel,
+            sdkUrl,
+            replayUserMessages: effectiveReplayUserMessages,
+            includePartialMessages: effectiveIncludePartialMessages,
+            forkSession: options.forkSession || false,
+            rewindFiles: options.rewindFiles,
+            agent: agentCli,
+          },
+          runtime: {
+            cwd: process.cwd(),
+            commands: commandsHeadless,
+            tools,
+            mcpClients: [],
+            agents: agentDefinitions.activeAgents,
+            canUseTool: async (
+              tool,
+              input,
+              toolUseContext,
+              assistantMessage,
+              toolUseId,
+              forceDecision,
+            ) =>
+              forceDecision ??
+              (await hasPermissionsToUseTool(
+                tool,
+                input,
+                toolUseContext,
+                assistantMessage,
+                toolUseId,
+              )),
+            getAppState: () => headlessStore.getState(),
+            setAppState: headlessStore.setState,
+          }
+        });
+
+        gracefulShutdownSync(exitCode);
+        return;
+      }
+
       profileCheckpoint('before_print_import');
       const {
         runHeadless

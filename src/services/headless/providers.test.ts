@@ -3,6 +3,7 @@ import { createCodexHeadlessProvider } from 'src/services/codex/runHeadlessCodex
 import {
   getHeadlessProviderRegistry,
   resolveHeadlessProvider,
+  shouldSkipRemoteMcpBootstrapForHeadlessProvider,
 } from './providers.js'
 
 const originalCodexFlag = process.env.CLAUDE_CODE_USE_CODEX
@@ -54,5 +55,19 @@ describe('resolveHeadlessProvider', () => {
     process.env.CLAUDE_CODE_USE_CODEX = '1'
 
     expect(resolveHeadlessProvider()?.metadata.id).toBe('codex')
+  })
+})
+
+describe('shouldSkipRemoteMcpBootstrapForHeadlessProvider', () => {
+  it('returns false when no headless provider is active', () => {
+    expect(shouldSkipRemoteMcpBootstrapForHeadlessProvider(null)).toBe(false)
+  })
+
+  it('returns true for the Codex headless provider', () => {
+    expect(
+      shouldSkipRemoteMcpBootstrapForHeadlessProvider(
+        createCodexHeadlessProvider(),
+      ),
+    ).toBe(true)
   })
 })

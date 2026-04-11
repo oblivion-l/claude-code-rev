@@ -26,3 +26,9 @@ export function resolveHeadlessProvider(): HeadlessProvider | null {
     ) ?? null
   )
 }
+
+export function shouldSkipRemoteMcpBootstrapForHeadlessProvider(
+  provider: HeadlessProvider | null,
+): boolean {
+  return provider?.metadata.id === 'codex'
+}

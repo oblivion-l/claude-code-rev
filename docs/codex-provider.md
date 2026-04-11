@@ -164,9 +164,15 @@ PowerShell 方式：
 
 ```powershell
 .\scripts\setup-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
+.\scripts\codex-selfcheck.ps1 --skip-api
+.\scripts\codex-selfcheck.ps1
 .\scripts\codex.ps1 -p "Explain this repository"
 .\scripts\codex.ps1
 ```
+
+Windows 首次部署建议参考：
+
+- [codex-windows.md](./codex-windows.md)
 
 ## 使用示例
 

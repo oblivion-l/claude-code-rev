@@ -19,7 +19,8 @@
     "start": "bun run ./src/bootstrap-entry.ts",
     "version": "bun run ./src/bootstrap-entry.ts --version",
     "dev:restore-check": "bun run ./src/dev-entry.ts",
-    "codex:setup": "bun run ./scripts/setup-codex.ts"
+    "codex:setup": "bun run ./scripts/setup-codex.ts",
+    "codex:selfcheck": "bun run ./scripts/codex-selfcheck.ts"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "*",

@@ -105,6 +105,13 @@ scripts\setup-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v
 .\scripts\setup-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 ```
 
+建议在 Windows 上初始化后再执行一次自检：
+
+```powershell
+.\scripts\codex-selfcheck.ps1 --skip-api
+.\scripts\codex-selfcheck.ps1
+```
+
 配置文件示例：
 
 ```json
@@ -119,3 +126,4 @@ scripts\setup-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v
 
 - [Codex Provider 使用说明](./docs/codex-provider.md)
 - [Codex 验收清单](./docs/codex-acceptance.md)
+- [Codex Windows 部署指南](./docs/codex-windows.md)

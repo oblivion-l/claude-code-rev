@@ -83,6 +83,22 @@ export OPENAI_API_KEY=your_api_key
 bun run dev -p "Explain this repository"
 ```
 
+长期使用建议：
+
+- Linux/macOS：可继续使用环境变量，或写入 `~/.claude/codex-provider.json`
+- Windows：优先使用 `scripts\codex.cmd` 或 `.\scripts\codex.ps1`
+- 如果使用第三方中转 API，可在本地配置文件中写入 `baseUrl` 和 `model`
+
+配置文件示例：
+
+```json
+{
+  "apiKey": "your_api_key",
+  "baseUrl": "https://www.xmapi.cc/v1",
+  "model": "gpt-5.4"
+}
+```
+
 详细说明见：
 
 - [Codex Provider 使用说明](./docs/codex-provider.md)

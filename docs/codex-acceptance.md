@@ -34,6 +34,21 @@ export OPENAI_API_KEY=your_api_key
 export CODEX_MODEL=gpt-5-codex
 ```
 
+如果希望在 Windows 或长期使用场景下减少手工环境变量配置，也可以写入本地配置文件：
+
+- 默认路径：`~/.claude/codex-provider.json`
+- 自定义路径：`CLAUDE_CODE_CODEX_CONFIG_PATH`
+
+示例：
+
+```json
+{
+  "apiKey": "your_api_key",
+  "baseUrl": "https://www.xmapi.cc/v1",
+  "model": "gpt-5.4"
+}
+```
+
 可选：
 
 ```bash
@@ -64,6 +79,16 @@ bash scripts/codex-acceptance.sh --full
 bash scripts/codex-acceptance.sh --dry-run --quick
 bash scripts/codex-acceptance.sh --dry-run --full
 CASE_TIMEOUT_SECONDS=60 bash scripts/codex-acceptance.sh --quick
+```
+
+Windows 启动脚本：
+
+```bat
+scripts\codex.cmd -p "Reply with OK only."
+```
+
+```powershell
+.\scripts\codex.ps1 -p "Reply with OK only."
 ```
 
 说明：
@@ -253,7 +278,8 @@ bun run dev -p --resume <session_id> "Now summarize the main risks"
 
 | 错误文本 | 含义 | 建议处理方式 |
 | --- | --- | --- |
-| `Codex provider requires OPENAI_API_KEY when CLAUDE_CODE_USE_CODEX=1.` | 缺少 API key | 设置 `OPENAI_API_KEY` |
+| `Codex provider requires OPENAI_API_KEY when CLAUDE_CODE_USE_CODEX=1. You can also provide apiKey in ...` | 既没有环境变量，也没有本地 Codex 配置文件 | 设置 `OPENAI_API_KEY`，或写入 `~/.claude/codex-provider.json` |
+| `Invalid Codex config file at ...` | 本地 `codex-provider.json` 不是合法 JSON，或字段类型错误 | 检查 JSON 语法，并确保 `apiKey/baseUrl/model/...` 都是字符串 |
 | `Model ... is not enabled for Codex --json-schema mode in this CLI build` | 本地 structured-output allowlist 拒绝了当前模型 | 使用 `CODEX_MODEL=gpt-5-codex` 或其他已明确支持的 Codex/GPT-5 模型 |
 | `Codex model ... is not supported for this request` | API 明确拒绝了该模型或相关能力 | 更换模型或调整功能组合 |
 | `Codex structured outputs are not supported for model ... or this API parameter set` | API 明确拒绝了 `text.format` 或相关 structured-output 参数 | 更换模型、后端、路径，或关闭 `--json-schema` |

@@ -80,6 +80,30 @@ export CLAUDE_CODE_USE_CODEX=1
 export OPENAI_API_KEY=your_api_key
 ```
 
+如果你希望长期稳定使用，尤其是在 Windows 上，不建议每次手工设置环境变量。当前 Codex provider 还支持从本地配置文件读取运行参数：
+
+- 默认路径：`~/.claude/codex-provider.json`
+- 可通过 `CLAUDE_CODE_CODEX_CONFIG_PATH` 指向自定义路径
+- 环境变量优先级高于配置文件
+
+配置文件示例：
+
+```json
+{
+  "apiKey": "your_api_key",
+  "baseUrl": "https://www.xmapi.cc/v1",
+  "model": "gpt-5.4",
+  "organization": "org_123",
+  "project": "proj_123"
+}
+```
+
+推荐用法：
+
+- 临时调试：直接设置环境变量
+- 长期本机使用：写入 `~/.claude/codex-provider.json`
+- 多环境切换：设置 `CLAUDE_CODE_CODEX_CONFIG_PATH`
+
 可选环境变量：
 
 ```bash
@@ -90,6 +114,34 @@ export OPENAI_PROJECT_ID=proj_123
 ```
 
 `CODEX_MODEL` 会优先使用自身；如果未设置，则回退到 `OPENAI_MODEL`，再回退到 `gpt-5-codex`。
+
+## Windows 启动方式
+
+仓库中新增了两个 Windows 启动脚本：
+
+- `scripts/codex.cmd`
+- `scripts/codex.ps1`
+
+它们会自动：
+
+- 在未显式设置时补上 `CLAUDE_CODE_USE_CODEX=1`
+- 优先使用已有环境变量
+- 当未设置 `OPENAI_API_KEY` 时，检查 `~/.claude/codex-provider.json`
+- 用当前仓库的 CLI bootstrap 启动 Codex provider
+
+`cmd` 方式：
+
+```bat
+scripts\codex.cmd -p "Explain this repository"
+scripts\codex.cmd
+```
+
+PowerShell 方式：
+
+```powershell
+.\scripts\codex.ps1 -p "Explain this repository"
+.\scripts\codex.ps1
+```
 
 ## 使用示例
 
@@ -231,6 +283,16 @@ bun run dev --mcp-config ./mcp.remote.json
 
 - 说明模型虽然返回了 JSON，但没有通过本地 schema 校验。
 - 重点检查必填字段、字段类型和 `additionalProperties`。
+
+`Codex provider requires OPENAI_API_KEY when CLAUDE_CODE_USE_CODEX=1. You can also provide apiKey in ...`
+
+- 说明既没有设置 `OPENAI_API_KEY`，也没有在本地 `codex-provider.json` 中提供 `apiKey`。
+- 如果你在 Windows 上长期使用，建议写入本地配置文件而不是每次手工设置环境变量。
+
+`Invalid Codex config file at ...`
+
+- 说明本地 `codex-provider.json` 不是合法 JSON，或字段类型不正确。
+- 检查 `apiKey`、`baseUrl`、`model`、`organization`、`project` 是否都是字符串。
 
 `Codex provider continue requested but no conversation state is available for the current directory.`
 

@@ -77,7 +77,9 @@ describe('formatCodexApiError', () => {
         usedMcpTools: false,
         usedFunctionTools: false,
       }),
-    ).toContain('Codex structured output request was rejected by the API for model gpt-5-codex')
+    ).toContain(
+      'Codex structured outputs are not supported for model gpt-5-codex or this API parameter set',
+    )
   })
 
   it('formats MCP tool rejections clearly', () => {

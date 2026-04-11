@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
+import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js'
 import {
   executeCodexFunctionCalls,
   extractCodexFunctionCalls,
@@ -9,6 +13,37 @@ import {
 } from './toolBridge.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 
+const originalConfigDirEnv = process.env.CLAUDE_CONFIG_DIR
+const originalSimpleEnv = process.env.CLAUDE_CODE_SIMPLE
+let configDir: string
+
+beforeEach(() => {
+  configDir = mkdtempSync(join(tmpdir(), 'codex-tool-bridge-config-'))
+  process.env.CLAUDE_CONFIG_DIR = configDir
+  process.env.CLAUDE_CODE_SIMPLE = '1'
+  resetHooksConfigSnapshot()
+})
+
+afterEach(() => {
+  resetHooksConfigSnapshot()
+
+  if (originalConfigDirEnv === undefined) {
+    delete process.env.CLAUDE_CONFIG_DIR
+  } else {
+    process.env.CLAUDE_CONFIG_DIR = originalConfigDirEnv
+  }
+
+  if (originalSimpleEnv === undefined) {
+    delete process.env.CLAUDE_CODE_SIMPLE
+  } else {
+    process.env.CLAUDE_CODE_SIMPLE = originalSimpleEnv
+  }
+
+  if (configDir) {
+    rmSync(configDir, { recursive: true, force: true })
+  }
+})
+
 function createFakeRuntime(
   tools: Tool[],
 ): CodexToolRuntime {
@@ -16,6 +51,7 @@ function createFakeRuntime(
     toolPermissionContext: getEmptyToolPermissionContext(),
     fileHistory: {},
     attribution: {},
+    sessionHooks: new Map(),
   }
 
   return {

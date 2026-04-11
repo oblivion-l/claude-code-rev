@@ -286,7 +286,22 @@ function loadPersistedStateByCwd(
   }
 
   const pointer = parsePointer(providerId, readFileSync(pointerFilePath, 'utf8'))
-  return loadPersistedStateById(providerId, pointer.stateId)
+  try {
+    return loadPersistedStateById(providerId, pointer.stateId)
+  } catch (error) {
+    if (
+      error instanceof HeadlessConversationStateError &&
+      error.kind === 'missing_state'
+    ) {
+      rmSync(pointerFilePath, { force: true })
+      throw new HeadlessConversationStateError(
+        'missing_pointer',
+        `Persisted ${providerId} latest-conversation pointer for ${cwd} referenced missing state ${pointer.stateId}. The stale pointer was cleaned up.`,
+      )
+    }
+
+    throw error
+  }
 }
 
 export function getHeadlessConversationState(

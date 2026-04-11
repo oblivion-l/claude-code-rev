@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
+import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js'
 import {
   createCodexReplSession,
   type CodexReplTurnEvent,
@@ -10,6 +14,8 @@ import type { CodexToolRuntime } from './toolRuntime.js'
 
 const originalEnv = {
   CLAUDE_CODE_USE_CODEX: process.env.CLAUDE_CODE_USE_CODEX,
+  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+  CLAUDE_CODE_SIMPLE: process.env.CLAUDE_CODE_SIMPLE,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_MODEL: process.env.CODEX_MODEL,
@@ -17,6 +23,7 @@ const originalEnv = {
 }
 
 const originalFetch = globalThis.fetch
+let configDir: string
 
 function buildSseResponse(events: unknown[]): Response {
   const body = events
@@ -104,6 +111,7 @@ function createFakeRuntime(
     toolPermissionContext: getEmptyToolPermissionContext(),
     fileHistory: {},
     attribution: {},
+    sessionHooks: new Map(),
   }
 
   return {
@@ -152,6 +160,7 @@ async function collectTurn(
 
 afterEach(() => {
   globalThis.fetch = originalFetch
+  resetHooksConfigSnapshot()
 
   for (const [key, value] of Object.entries(originalEnv)) {
     if (value === undefined) {
@@ -160,12 +169,20 @@ afterEach(() => {
       process.env[key] = value
     }
   }
+
+  if (configDir) {
+    rmSync(configDir, { recursive: true, force: true })
+  }
 })
 
 describe('createCodexReplSession', () => {
   it('streams a single successful turn', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
 
     globalThis.fetch = async (_url, init) => {
       const requestBody = JSON.parse(String(init?.body))
@@ -209,8 +226,12 @@ describe('createCodexReplSession', () => {
   })
 
   it('reuses the previous response id on the next turn', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
 
     const requestBodies: Record<string, unknown>[] = []
     let callCount = 0
@@ -261,8 +282,12 @@ describe('createCodexReplSession', () => {
   })
 
   it('passes mapped MCP tools through to the Codex API request', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
 
     const requestBodies: Record<string, unknown>[] = []
 
@@ -307,8 +332,12 @@ describe('createCodexReplSession', () => {
   })
 
   it('executes local function tools through the shared Codex runtime', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
 
     const readTool = createFakeTool('Read')
     const requestBodies: Record<string, unknown>[] = []
@@ -385,8 +414,12 @@ describe('createCodexReplSession', () => {
   })
 
   it('starts from persisted state when a previous response id is provided', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
 
     const requestBodies: Record<string, unknown>[] = []
 
@@ -435,8 +468,12 @@ describe('createCodexReplSession', () => {
   })
 
   it('fails fast when OPENAI_API_KEY is missing', () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     delete process.env.OPENAI_API_KEY
+    resetHooksConfigSnapshot()
 
     expect(() => createCodexReplSession()).toThrow(
       'Codex provider requires OPENAI_API_KEY when CLAUDE_CODE_USE_CODEX=1.',
@@ -444,9 +481,13 @@ describe('createCodexReplSession', () => {
   })
 
   it('surfaces unsupported model errors from the API', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     process.env.OPENAI_API_KEY = 'test-key'
     process.env.CODEX_MODEL = 'gpt-unknown'
+    resetHooksConfigSnapshot()
 
     globalThis.fetch = async () =>
       new Response(
@@ -473,8 +514,12 @@ describe('createCodexReplSession', () => {
   })
 
   it('surfaces MCP parameter errors from the API clearly', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
     process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
 
     globalThis.fetch = async () =>
       new Response(

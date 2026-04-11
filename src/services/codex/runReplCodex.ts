@@ -10,8 +10,14 @@ import type {
   ReplProviderLaunchArgs,
 } from 'src/services/repl/provider.js'
 import { EMPTY_USAGE } from 'src/services/api/logging.js'
+import type { MCPServerConnection } from 'src/services/mcp/types.js'
+import { TOOL_SEARCH_TOOL_NAME } from 'src/tools/ToolSearchTool/constants.js'
+import { isDeferredTool } from 'src/tools/ToolSearchTool/prompt.js'
 import type { NonNullableUsage } from 'src/entrypoints/sdk/sdkUtilityTypes.js'
-import { extractCodexFunctionCalls } from './toolBridge.js'
+import {
+  extractCodexFunctionCalls,
+  selectCodexFunctionTools,
+} from './toolBridge.js'
 import {
   buildCodexRequestTools,
   CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS,
@@ -82,6 +88,16 @@ export type CodexReplPromptOutcome =
   | {
       kind: 'exit'
       exitCode: number
+    }
+
+type CodexReplSlashCommand =
+  | {
+      name: 'help' | 'status' | 'resume' | 'model' | 'tools'
+      argText: string
+    }
+  | {
+      name: 'exit'
+      argText: string
     }
 
 function accumulateCodexUsage(
@@ -195,6 +211,298 @@ function isSlashCommand(input: string): boolean {
   return input.trimStart().startsWith('/')
 }
 
+function getCodexReplInteractiveResumePickerUnsupportedMessage(): string {
+  return 'Codex REPL does not support the interactive resume picker. Pass an explicit persisted resume id to --resume.'
+}
+
+function getCodexReplContinueMissingCwdMessage(): string {
+  return 'Codex REPL continue requested but no current working directory is available.'
+}
+
+function getCodexReplContinueMissingStateMessage(): string {
+  return 'Codex REPL continue requested but no conversation state is available for the current directory.'
+}
+
+function getCodexReplResumeMissingCwdMessage(): string {
+  return 'Codex REPL resume requested but no current working directory is available.'
+}
+
+function getCodexReplResumeMissingStateMessage(): string {
+  return 'Codex REPL resume requested but no persisted conversation state is available.'
+}
+
+function getCodexReplResumeSessionAtMissingTurnMessage(
+  assistantMessageUuid: string,
+): string {
+  return `Codex REPL could not find persisted assistant turn ${assistantMessageUuid} for --resume-session-at.`
+}
+
+function parseCodexReplSlashCommand(
+  input: string,
+): CodexReplSlashCommand | null {
+  const trimmed = input.trim()
+  if (!trimmed.startsWith('/')) {
+    return null
+  }
+
+  const withoutSlash = trimmed.slice(1).trim()
+  if (!withoutSlash) {
+    return null
+  }
+
+  const [rawName, ...rest] = withoutSlash.split(/\s+/)
+  const name = rawName.toLowerCase()
+  const argText = rest.join(' ').trim()
+
+  switch (name) {
+    case 'help':
+    case 'status':
+    case 'resume':
+    case 'model':
+    case 'tools':
+    case 'exit':
+    case 'quit':
+      return {
+        name: name === 'quit' ? 'exit' : name,
+        argText,
+      } as CodexReplSlashCommand
+    default:
+      return null
+  }
+}
+
+function formatCodexReplMcpFailureReason(
+  client: Exclude<MCPServerConnection, { type: 'connected' }>,
+): string | undefined {
+  if (client.type === 'failed') {
+    return client.error ?? 'connection failed'
+  }
+
+  if (client.type === 'needs-auth') {
+    return 'authentication required'
+  }
+
+  if (client.type === 'pending') {
+    return client.reconnectAttempt
+      ? `connecting (attempt ${client.reconnectAttempt}/${client.maxReconnectAttempts ?? '?'})`
+      : 'connecting'
+  }
+
+  if (client.type === 'disabled') {
+    return 'disabled'
+  }
+
+  return undefined
+}
+
+function summarizeCodexReplMcpClients(
+  clients: MCPServerConnection[],
+): string[] {
+  if (clients.length === 0) {
+    return ['MCP bridge servers: none']
+  }
+
+  const counts = {
+    connected: clients.filter(client => client.type === 'connected').length,
+    pending: clients.filter(client => client.type === 'pending').length,
+    failed: clients.filter(client => client.type === 'failed').length,
+    needsAuth: clients.filter(client => client.type === 'needs-auth').length,
+    disabled: clients.filter(client => client.type === 'disabled').length,
+  }
+
+  const lines = [
+    `MCP bridge servers: ${clients.length} total (${counts.connected} connected, ${counts.pending} pending, ${counts.failed} failed, ${counts.needsAuth} needs-auth, ${counts.disabled} disabled)`,
+  ]
+
+  for (const client of clients) {
+    const transport = client.config.type ?? 'stdio'
+    const reason =
+      client.type === 'connected'
+        ? undefined
+        : formatCodexReplMcpFailureReason(client)
+    lines.push(
+      `- ${client.name} [${client.type}] transport=${transport}${reason ? ` reason=${reason}` : ''}`,
+    )
+  }
+
+  return lines
+}
+
+function summarizeCodexReplRemoteMcpTools(mcpTools: CodexMcpTool[]): string[] {
+  if (mcpTools.length === 0) {
+    return ['Remote MCP passthrough: none']
+  }
+
+  return [
+    `Remote MCP passthrough: ${mcpTools.length} server(s)`,
+    ...mcpTools.map(
+      tool => `- ${tool.server_label} [remote-mcp] url=${tool.server_url}`,
+    ),
+  ]
+}
+
+function resolveCodexReplPersistedStateForResume(options: {
+  cwd?: string
+  stateId?: string
+}): CodexReplPersistedState {
+  const state = options.stateId
+    ? getCodexReplState({
+        stateId: options.stateId,
+      })
+    : options.cwd
+      ? getCodexReplState({
+          cwd: options.cwd,
+        })
+      : null
+
+  if (!state?.lastResponseId) {
+    throw new Error(getCodexReplResumeMissingStateMessage())
+  }
+
+  return state
+}
+
+function summarizeCodexReplPersistedConversationState(
+  state: CodexReplConversationState,
+): string {
+  if (!state.cwd) {
+    return 'Persisted conversation state: unavailable because no current working directory is available.'
+  }
+
+  if (!state.lastResponseId) {
+    return 'Persisted conversation state: no conversation state is available for the current directory yet.'
+  }
+
+  return 'Persisted conversation state: conversation state is available for the current directory.'
+}
+
+function summarizeCodexReplFunctionTools(args: {
+  runtime?: CodexToolRuntime
+  discoveredToolNames: Set<string>
+}): string[] {
+  const tools = args.runtime?.tools ?? []
+  if (tools.length === 0) {
+    return ['Function tools exposed: none']
+  }
+
+  const selectedTools = selectCodexFunctionTools(tools, args.runtime, {
+    discoveredToolNames: args.discoveredToolNames,
+  })
+  if (selectedTools.length === 0) {
+    return ['Function tools exposed: none']
+  }
+
+  const lines = [`Function tools exposed: ${selectedTools.length}`]
+  for (const tool of [...selectedTools].sort((left, right) =>
+    left.name.localeCompare(right.name),
+  )) {
+    const source =
+      tool.name === TOOL_SEARCH_TOOL_NAME
+        ? 'tool-search'
+        : tool.isMcp
+          ? 'mcp-bridge'
+          : 'local'
+    const flags = [
+      isDeferredTool(tool) ? 'deferred' : null,
+      args.discoveredToolNames.has(tool.name) ? 'discovered' : null,
+    ].filter((value): value is string => value !== null)
+    lines.push(
+      `- ${tool.name} [${source}]${flags.length > 0 ? ` ${flags.join(', ')}` : ''}`,
+    )
+  }
+
+  const hiddenDeferredTools = tools
+    .filter(tool => isDeferredTool(tool))
+    .filter(
+      tool => !selectedTools.some(selectedTool => selectedTool.name === tool.name),
+    )
+    .map(tool => tool.name)
+    .sort((left, right) => left.localeCompare(right))
+  if (hiddenDeferredTools.length > 0) {
+    lines.push(
+      `Deferred tools hidden until ToolSearch selects them: ${hiddenDeferredTools.join(', ')}`,
+    )
+  }
+
+  return lines
+}
+
+async function handleCodexReplSlashCommand(args: {
+  session: CodexReplSession
+  command: CodexReplSlashCommand | null
+  prompt: string
+  writeLine: (message?: string) => void
+  writeError: (message: string) => void
+  persistState: (state: CodexReplConversationState) => void
+}): Promise<CodexReplPromptOutcome> {
+  const command = args.command
+  if (!command) {
+    args.writeError(
+      `Unknown Codex REPL command "${args.prompt.trim()}". Use /help to see available commands.`,
+    )
+    return { kind: 'continue' }
+  }
+
+  switch (command.name) {
+    case 'exit':
+      return {
+        kind: 'exit',
+        exitCode: 0,
+      }
+    case 'help':
+      args.writeLine('Codex REPL commands:')
+      args.writeLine('- /help Show available REPL commands')
+      args.writeLine('- /status Show provider, session, and MCP status')
+      args.writeLine(
+        '- /resume [state-id] Load persisted conversation state for the current directory or an explicit state id',
+      )
+      args.writeLine('- /model Show the current model and API base URL')
+      args.writeLine('- /tools Show local, MCP bridge, and remote MCP tool visibility')
+      args.writeLine('- /exit Exit the REPL')
+      return { kind: 'continue' }
+    case 'model':
+      args.writeLine(`Provider: Codex`)
+      args.writeLine(`Model: ${args.session.model}`)
+      args.writeLine(`API base URL: ${args.session.baseUrl}`)
+      return { kind: 'continue' }
+    case 'status':
+      for (const line of args.session.describeStatusLines()) {
+        args.writeLine(line)
+      }
+      return { kind: 'continue' }
+    case 'tools':
+      for (const line of args.session.describeToolLines()) {
+        args.writeLine(line)
+      }
+      return { kind: 'continue' }
+    case 'resume': {
+      try {
+        const resumeState = command.argText
+          ? resolveCodexReplPersistedStateForResume({
+              stateId: command.argText,
+            })
+          : args.session.cwd
+            ? resolveCodexReplPersistedStateForResume({
+                cwd: args.session.cwd,
+              })
+            : (() => {
+                throw new Error(getCodexReplResumeMissingCwdMessage())
+              })()
+
+        args.session.replaceConversationState(resumeState)
+        args.persistState(args.session.state)
+        args.writeLine(
+          `Resumed persisted conversation state ${resumeState.stateId}${resumeState.lastResponseId ? ` (last response ${resumeState.lastResponseId})` : ''}.`,
+        )
+      } catch (error) {
+        args.writeError(formatCodexReplError(error))
+      }
+
+      return { kind: 'continue' }
+    }
+  }
+}
+
 export async function handleCodexReplPrompt(args: {
   session: CodexReplSession
   prompt: string
@@ -228,8 +536,14 @@ export async function handleCodexReplPrompt(args: {
   }
 
   if (isSlashCommand(prompt)) {
-    emitError('Codex REPL currently only supports text prompts and /exit.')
-    return { kind: 'continue' }
+    return handleCodexReplSlashCommand({
+      session: args.session,
+      command: parseCodexReplSlashCommand(prompt),
+      prompt,
+      writeLine: emitLine,
+      writeError: emitError,
+      persistState,
+    })
   }
 
   const iterator = args.session.submitTurn(prompt, args.signal)
@@ -292,9 +606,7 @@ function resolveInitialConversationState({
   const cwd = providerContext?.cwd
 
   if (providerContext?.resume === true) {
-    throw new Error(
-      'Codex REPL does not support the interactive resume picker. Pass an explicit persisted resume id to --resume.',
-    )
+    throw new Error(getCodexReplInteractiveResumePickerUnsupportedMessage())
   }
 
   let state: CodexReplPersistedState | null = null
@@ -305,26 +617,20 @@ function resolveInitialConversationState({
     })
   } else if (providerContext?.continue) {
     if (!cwd) {
-      throw new Error(
-        'Codex REPL continue requested but no current working directory is available.',
-      )
+      throw new Error(getCodexReplContinueMissingCwdMessage())
     }
 
     state = getCodexReplState({
       cwd,
     })
     if (!state?.lastResponseId) {
-      throw new Error(
-        'Codex REPL continue requested but no conversation state is available for the current directory.',
-      )
+      throw new Error(getCodexReplContinueMissingStateMessage())
     }
   }
 
   if (providerContext?.resumeSessionAt) {
     if (!state?.lastResponseId) {
-      throw new Error(
-        'Codex REPL resume requested but no persisted conversation state is available.',
-      )
+      throw new Error(getCodexReplResumeMissingStateMessage())
     }
 
     const matchedTurnIndex =
@@ -334,7 +640,9 @@ function resolveInitialConversationState({
 
     if (matchedTurnIndex < 0) {
       throw new Error(
-        `Codex REPL could not find persisted assistant turn ${providerContext.resumeSessionAt} for --resume-session-at.`,
+        getCodexReplResumeSessionAtMissingTurnMessage(
+          providerContext.resumeSessionAt,
+        ),
       )
     }
 
@@ -442,8 +750,75 @@ export class CodexReplSession {
     return this.config.model
   }
 
+  get baseUrl(): string {
+    return this.config.baseUrl
+  }
+
+  get cwd(): string | undefined {
+    return this.conversationState.cwd ?? this.options.cwd ?? this.options.runtime?.cwd
+  }
+
   get state(): CodexReplConversationState {
     return { ...this.conversationState }
+  }
+
+  replaceConversationState(
+    state: CodexReplConversationState | CodexReplPersistedState,
+  ): void {
+    this.conversationState = {
+      providerId: 'codex-repl',
+      version: state.version,
+      stateId: state.stateId ?? this.conversationState.stateId,
+      cwd: state.cwd ?? this.cwd,
+      createdAt: state.createdAt ?? this.conversationState.createdAt,
+      updatedAt: state.updatedAt ?? this.conversationState.updatedAt,
+      conversationId:
+        state.conversationId ??
+        state.stateId ??
+        this.conversationState.conversationId,
+      lastResponseId: state.lastResponseId,
+      lastAssistantMessageUuid: state.lastAssistantMessageUuid,
+      metadata: state.metadata,
+      history: state.history ?? [],
+    }
+    this.discoveredToolNames.clear()
+    for (const toolName of getCodexDiscoveredToolNames(state)) {
+      this.discoveredToolNames.add(toolName)
+    }
+  }
+
+  describeStatusLines(): string[] {
+    const historyLength = this.conversationState.history?.length ?? 0
+    const lines = [
+      'Provider: Codex',
+      `Model: ${this.model}`,
+      `API base URL: ${this.baseUrl}`,
+      `Session id: ${this.conversationState.stateId ?? 'unavailable'}`,
+      `Conversation id: ${this.conversationState.conversationId ?? 'unavailable'}`,
+      `Current working directory: ${this.cwd ?? 'unavailable'}`,
+      summarizeCodexReplPersistedConversationState(this.conversationState),
+      `Assistant turns: ${historyLength}`,
+      `Last response id: ${this.conversationState.lastResponseId ?? 'none'}`,
+    ]
+
+    return [
+      ...lines,
+      ...summarizeCodexReplMcpClients(this.options.runtime?.mcpClients ?? []),
+      ...summarizeCodexReplRemoteMcpTools(this.options.mcpTools ?? []),
+    ]
+  }
+
+  describeToolLines(): string[] {
+    const lines = summarizeCodexReplFunctionTools({
+      runtime: this.options.runtime,
+      discoveredToolNames: this.discoveredToolNames,
+    })
+
+    return [
+      ...lines,
+      ...summarizeCodexReplRemoteMcpTools(this.options.mcpTools ?? []),
+      ...summarizeCodexReplMcpClients(this.options.runtime?.mcpClients ?? []),
+    ]
   }
 
   async *submitTurn(
@@ -678,7 +1053,7 @@ export async function runCodexRepl(
       ? 'resumed'
       : 'ready'
   writeLine(
-    `Codex REPL ${resumeMode} (${session.model})${sessionId ? ` · session ${sessionId}` : ''}. Type /exit to quit.`,
+    `Codex REPL ${resumeMode} (${session.model})${sessionId ? ` · session ${sessionId}` : ''}. Type /help for commands or /exit to quit.`,
   )
 
   try {

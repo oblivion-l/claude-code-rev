@@ -13,6 +13,7 @@ import {
   type CodexReplTurnEvent,
   type CodexReplTurnResult,
 } from './runReplCodex.js'
+import { setCodexReplState } from './replState.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 
 const originalEnv = {
@@ -24,6 +25,7 @@ const originalEnv = {
   CODEX_MODEL: process.env.CODEX_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH,
+  CLAUDE_CODE_HEADLESS_STATE_DIR: process.env.CLAUDE_CODE_HEADLESS_STATE_DIR,
 }
 
 const originalFetch = globalThis.fetch
@@ -156,6 +158,22 @@ function createConnectedMcpClient(name: string): MCPServerConnection {
     config: {
       command: 'node',
       args: ['server.js'],
+      scope: 'user',
+    },
+  }
+}
+
+function createFailedMcpClient(
+  name: string,
+  error = 'connection failed',
+): MCPServerConnection {
+  return {
+    name,
+    type: 'failed',
+    error,
+    config: {
+      type: 'http',
+      url: 'https://example.com/mcp',
       scope: 'user',
     },
   }
@@ -987,7 +1005,255 @@ describe('createCodexReplSession', () => {
     expect(persistedStates[1]?.lastResponseId).toBe('resp_after_error')
   })
 
-  it('treats slash commands as non-fatal prompt errors', async () => {
+  it('shows help output for /help without leaving the REPL', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/help',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toContain('Codex REPL commands:')
+    expect(lines).toContain('- /status Show provider, session, and MCP status')
+    expect(lines).toContain('- /exit Exit the REPL')
+  })
+
+  it('shows current provider model information for /model', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.OPENAI_BASE_URL = 'https://example.com/v1'
+    process.env.CODEX_MODEL = 'gpt-5.4'
+    resetHooksConfigSnapshot()
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/model',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toEqual([
+      'Provider: Codex',
+      'Model: gpt-5.4',
+      'API base URL: https://example.com/v1',
+    ])
+  })
+
+  it('shows session and MCP status for /status', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const session = createCodexReplSession({
+      cwd: '/tmp/status-project',
+      runtime: createFakeRuntime(
+        [createFakeTool('Read')],
+        [
+          createConnectedMcpClient('docs'),
+          createFailedMcpClient('github', 'auth expired'),
+        ],
+      ),
+      mcpTools: [
+        {
+          type: 'mcp',
+          server_label: 'remote-docs',
+          server_url: 'https://example.com/remote-mcp',
+        },
+      ],
+      conversationState: {
+        providerId: 'codex-repl',
+        stateId: 'status_state_1',
+        cwd: '/tmp/status-project',
+        conversationId: 'status_state_1',
+        lastResponseId: 'resp_status_1',
+        history: [
+          {
+            assistantMessageUuid: 'msg_status_1',
+            responseId: 'resp_status_1',
+            createdAt: '2026-04-10T00:00:00.000Z',
+          },
+        ],
+      },
+    })
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/status',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toContain('Provider: Codex')
+    expect(lines).toContain('Session id: status_state_1')
+    expect(lines).toContain(
+      'Persisted conversation state: conversation state is available for the current directory.',
+    )
+    expect(lines).toContain(
+      'MCP bridge servers: 2 total (1 connected, 0 pending, 1 failed, 0 needs-auth, 0 disabled)',
+    )
+    expect(lines).toContain(
+      '- github [failed] transport=http reason=auth expired',
+    )
+    expect(lines).toContain(
+      '- remote-docs [remote-mcp] url=https://example.com/remote-mcp',
+    )
+  })
+
+  it('shows tool visibility and sources for /tools', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    resetHooksConfigSnapshot()
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime(
+        [createFakeTool('Read'), ToolSearchTool, bridgedMcpTool],
+        [createConnectedMcpClient('docs')],
+      ),
+      mcpTools: [
+        {
+          type: 'mcp',
+          server_label: 'remote-docs',
+          server_url: 'https://example.com/remote-mcp',
+        },
+      ],
+    })
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/tools',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toContain('Function tools exposed: 2')
+    expect(lines).toContain('- Read [local]')
+    expect(lines).toContain('- ToolSearch [tool-search]')
+    expect(lines).toContain(
+      'Deferred tools hidden until ToolSearch selects them: mcp__docs__search',
+    )
+    expect(lines).toContain(
+      '- remote-docs [remote-mcp] url=https://example.com/remote-mcp',
+    )
+    expect(lines).toContain(
+      'MCP bridge servers: 1 total (1 connected, 0 pending, 0 failed, 0 needs-auth, 0 disabled)',
+    )
+  })
+
+  it('resumes persisted state with /resume <state-id>', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'resume_state_1',
+        cwd: '/tmp/resume-project',
+        conversationId: 'resume_state_1',
+        lastResponseId: 'resp_resume_1',
+        history: [
+          {
+            assistantMessageUuid: 'msg_resume_1',
+            responseId: 'resp_resume_1',
+            createdAt: '2026-04-10T00:00:00.000Z',
+          },
+        ],
+        metadata: {
+          codexDiscoveredToolNames: ['mcp__docs__search'],
+        },
+      },
+      {
+        cwd: '/tmp/resume-project',
+      },
+    )
+
+    const session = createCodexReplSession({
+      cwd: '/tmp/other-project',
+    })
+    const lines: string[] = []
+    const persistedStates: CodexReplTurnResult['conversationState'][] = []
+
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/resume resume_state_1',
+      writeLine: message => lines.push(message ?? ''),
+      persistState: state => persistedStates.push(state),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toEqual([
+      'Resumed persisted conversation state resume_state_1 (last response resp_resume_1).',
+    ])
+    expect(session.state.stateId).toBe('resume_state_1')
+    expect(session.state.lastResponseId).toBe('resp_resume_1')
+    expect(session.state.metadata).toEqual(
+      expect.objectContaining({
+        codexDiscoveredToolNames: ['mcp__docs__search'],
+      }),
+    )
+    expect(persistedStates).toHaveLength(1)
+    expect(persistedStates[0]?.stateId).toBe('resume_state_1')
+  })
+
+  it('surfaces readable resume errors for /resume', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const errors: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession({
+        cwd: '/tmp/missing-project',
+      }),
+      prompt: '/resume',
+      writeError: message => errors.push(message),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(errors).toEqual([
+      'Codex REPL resume requested but no persisted conversation state is available.',
+    ])
+  })
+
+  it('treats unknown slash commands as non-fatal prompt errors', async () => {
     configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
     process.env.CLAUDE_CODE_USE_CODEX = '1'
@@ -998,13 +1264,13 @@ describe('createCodexReplSession', () => {
     const errors: string[] = []
     const outcome = await handleCodexReplPrompt({
       session: createCodexReplSession(),
-      prompt: '/help',
+      prompt: '/unknown',
       writeError: message => errors.push(message),
     })
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(errors).toEqual([
-      'Codex REPL currently only supports text prompts and /exit.',
+      'Unknown Codex REPL command "/unknown". Use /help to see available commands.',
     ])
   })
 

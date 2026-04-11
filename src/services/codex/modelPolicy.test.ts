@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  getCodexModelCapabilityRegistry,
   getCodexModelPolicy,
-  getCodexModelPolicyOverrides,
   modelSupportsCodexStructuredOutput,
 } from './modelPolicy.js'
 
@@ -36,17 +36,16 @@ describe('getCodexModelPolicy', () => {
   })
 })
 
-describe('getCodexModelPolicyOverrides', () => {
-  it('exposes the prefix-based override registry for future model extensions', () => {
-    expect(getCodexModelPolicyOverrides()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          matchPrefix: 'gpt-5-codex',
-        }),
-        expect.objectContaining({
-          matchPrefix: 'gpt-5',
-        }),
+describe('getCodexModelCapabilityRegistry', () => {
+  it('exposes the capability-grouped registry for future model extensions', () => {
+    expect(getCodexModelCapabilityRegistry()).toEqual({
+      supportsStructuredOutput: expect.arrayContaining([
+        'gpt-5-codex',
+        'gpt-5',
       ]),
-    )
+      supportsRemoteMcpTools: [],
+      supportsLocalFunctionTools: [],
+      supportsMixedTooling: [],
+    })
   })
 })

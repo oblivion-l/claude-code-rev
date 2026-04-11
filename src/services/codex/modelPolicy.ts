@@ -6,9 +6,14 @@ export type CodexModelPolicy = {
   supportsMixedTooling: boolean
 }
 
-type CodexModelPolicyOverride = {
-  matchPrefix: string
-  override: Partial<Omit<CodexModelPolicy, 'model'>>
+type CodexModelCapabilityKey =
+  | 'supportsStructuredOutput'
+  | 'supportsRemoteMcpTools'
+  | 'supportsLocalFunctionTools'
+  | 'supportsMixedTooling'
+
+export type CodexModelCapabilityRegistry = {
+  [Key in CodexModelCapabilityKey]: readonly string[]
 }
 
 const DEFAULT_CODEX_MODEL_POLICY: Omit<CodexModelPolicy, 'model'> = {
@@ -18,63 +23,43 @@ const DEFAULT_CODEX_MODEL_POLICY: Omit<CodexModelPolicy, 'model'> = {
   supportsMixedTooling: true,
 }
 
-const CODEX_MODEL_POLICY_OVERRIDES: CodexModelPolicyOverride[] = [
-  {
-    matchPrefix: 'gpt-5-codex',
-    override: {
-      supportsStructuredOutput: true,
-    },
-  },
-  {
-    matchPrefix: 'gpt-5.1-codex',
-    override: {
-      supportsStructuredOutput: true,
-    },
-  },
-  {
-    matchPrefix: 'gpt-5.1-codex-max',
-    override: {
-      supportsStructuredOutput: true,
-    },
-  },
-  {
-    matchPrefix: 'gpt-5.2-codex',
-    override: {
-      supportsStructuredOutput: true,
-    },
-  },
-  {
-    matchPrefix: 'gpt-5.3-codex',
-    override: {
-      supportsStructuredOutput: true,
-    },
-  },
-  {
-    matchPrefix: 'gpt-5.4',
-    override: {
-      supportsStructuredOutput: true,
-    },
-  },
-  {
-    matchPrefix: 'gpt-5',
-    override: {
-      supportsStructuredOutput: true,
-    },
-  },
-]
-
-export function getCodexModelPolicyOverrides(): CodexModelPolicyOverride[] {
-  return [...CODEX_MODEL_POLICY_OVERRIDES]
+const CODEX_MODEL_CAPABILITY_REGISTRY: CodexModelCapabilityRegistry = {
+  supportsStructuredOutput: [
+    'gpt-5-codex',
+    'gpt-5.1-codex',
+    'gpt-5.1-codex-max',
+    'gpt-5.2-codex',
+    'gpt-5.3-codex',
+    'gpt-5.4',
+    'gpt-5',
+  ],
+  supportsRemoteMcpTools: [],
+  supportsLocalFunctionTools: [],
+  supportsMixedTooling: [],
 }
 
-function resolveCodexModelPolicyOverride(
+export function getCodexModelCapabilityRegistry(): CodexModelCapabilityRegistry {
+  return {
+    supportsStructuredOutput: [
+      ...CODEX_MODEL_CAPABILITY_REGISTRY.supportsStructuredOutput,
+    ],
+    supportsRemoteMcpTools: [
+      ...CODEX_MODEL_CAPABILITY_REGISTRY.supportsRemoteMcpTools,
+    ],
+    supportsLocalFunctionTools: [
+      ...CODEX_MODEL_CAPABILITY_REGISTRY.supportsLocalFunctionTools,
+    ],
+    supportsMixedTooling: [
+      ...CODEX_MODEL_CAPABILITY_REGISTRY.supportsMixedTooling,
+    ],
+  }
+}
+
+function modelMatchesCapabilityPrefix(
   model: string,
-): Partial<Omit<CodexModelPolicy, 'model'>> {
-  return (
-    CODEX_MODEL_POLICY_OVERRIDES.find(override =>
-      model.startsWith(override.matchPrefix),
-    )?.override ?? {}
-  )
+  prefixes: readonly string[],
+): boolean {
+  return prefixes.some(prefix => model.startsWith(prefix))
 }
 
 export function modelSupportsCodexStructuredOutput(model: string): boolean {
@@ -82,9 +67,34 @@ export function modelSupportsCodexStructuredOutput(model: string): boolean {
 }
 
 export function getCodexModelPolicy(model: string): CodexModelPolicy {
+  const registry = getCodexModelCapabilityRegistry()
+
   return {
     model,
     ...DEFAULT_CODEX_MODEL_POLICY,
-    ...resolveCodexModelPolicyOverride(model),
+    supportsStructuredOutput: modelMatchesCapabilityPrefix(
+      model,
+      registry.supportsStructuredOutput,
+    )
+      ? true
+      : DEFAULT_CODEX_MODEL_POLICY.supportsStructuredOutput,
+    supportsRemoteMcpTools: modelMatchesCapabilityPrefix(
+      model,
+      registry.supportsRemoteMcpTools,
+    )
+      ? true
+      : DEFAULT_CODEX_MODEL_POLICY.supportsRemoteMcpTools,
+    supportsLocalFunctionTools: modelMatchesCapabilityPrefix(
+      model,
+      registry.supportsLocalFunctionTools,
+    )
+      ? true
+      : DEFAULT_CODEX_MODEL_POLICY.supportsLocalFunctionTools,
+    supportsMixedTooling: modelMatchesCapabilityPrefix(
+      model,
+      registry.supportsMixedTooling,
+    )
+      ? true
+      : DEFAULT_CODEX_MODEL_POLICY.supportsMixedTooling,
   }
 }

@@ -313,6 +313,17 @@ export async function runHeadlessCodex({
           history: [],
         }
 
+  const attachDiscoveredToolState = (): HeadlessConversationState | null => {
+    if (!nextConversationState) {
+      return null
+    }
+
+    return withCodexDiscoveredToolNames({
+      state: nextConversationState,
+      discoveredToolNames,
+    })
+  }
+
   try {
     let currentInput: string | Array<{ type: 'function_call_output'; call_id: string; output: string }> = prompt
     let previousResponseId =
@@ -527,7 +538,7 @@ export async function runHeadlessCodex({
 
     return {
       exitCode: 0,
-      conversationState: nextConversationState,
+      conversationState: attachDiscoveredToolState(),
     }
   } catch (error) {
     const message = isAbortError(error)
@@ -553,7 +564,7 @@ export async function runHeadlessCodex({
 
     return {
       exitCode: 1,
-      conversationState: nextConversationState,
+      conversationState: attachDiscoveredToolState(),
     }
   } finally {
     process.off('SIGINT', sigintHandler)

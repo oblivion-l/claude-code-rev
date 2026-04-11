@@ -588,4 +588,113 @@ describe('runHeadlessCodex', () => {
     ])
     expect(secondRun.exitCode).toBe(0)
   })
+
+  it('preserves discovered tool state when a later headless round fails', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    let requestCount = 0
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestCount += 1
+
+      if (requestCount === 1) {
+        expect(requestBody.tools).toEqual([
+          expect.objectContaining({
+            type: 'function',
+            name: 'ToolSearch',
+          }),
+        ])
+
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_search',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'ToolSearch',
+                  call_id: 'call_tool_search',
+                  arguments: '{"query":"select:mcp__docs__search"}',
+                },
+              ],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      expect(requestBody.tools).toEqual([
+        expect.objectContaining({
+          type: 'function',
+          name: 'ToolSearch',
+        }),
+        expect.objectContaining({
+          type: 'function',
+          name: 'mcp__docs__search',
+        }),
+      ])
+
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: 'Unsupported parameter: tools[1].type',
+            param: 'tools[1].type',
+            code: 'unsupported_parameter',
+          },
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+    }
+
+    const writes: unknown[] = []
+    const structuredIO = {
+      write: async (message: unknown) => {
+        writes.push(message)
+      },
+    }
+
+    const result = await runHeadlessCodex({
+      inputPrompt: 'discover docs then fail',
+      structuredIO: structuredIO as any,
+      options: {
+        outputFormat: 'stream-json',
+      } as any,
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [createConnectedMcpClient('docs')],
+      ),
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.conversationState?.metadata).toEqual(
+      expect.objectContaining({
+        codexDiscoveredToolNames: ['mcp__docs__search'],
+      }),
+    )
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        type: 'result',
+        subtype: 'error_during_execution',
+      }),
+    )
+  })
 })

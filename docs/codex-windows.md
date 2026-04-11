@@ -37,7 +37,30 @@ cd claude-code-rev
 bun install
 ```
 
-## 3. 初始化 Codex 配置
+## 3. 一键安装
+
+如果你希望尽量少手工操作，推荐直接运行一键安装脚本：
+
+```powershell
+.\scripts\install-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
+```
+
+如果使用 `cmd.exe`：
+
+```bat
+scripts\install-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
+```
+
+说明：
+
+- 默认会执行 `bun install`
+- 会自动调用 `setup-codex`
+- 会自动调用 `codex-selfcheck`
+- 加 `--skip-api` 时，只做本地自检，不发真实 API 请求
+
+如果你希望保留手工分步控制，再继续看下面的分步方式。
+
+## 4. 初始化 Codex 配置
 
 推荐不要手工编辑 JSON，直接运行初始化脚本：
 
@@ -57,7 +80,7 @@ scripts\setup-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v
 - 复用已有配置，只更新你显式传入的字段
 - 对写入结果做一次本地校验
 
-## 4. 执行本地自检
+## 5. 执行本地自检
 
 推荐先做本地自检，不直接上真实请求：
 
@@ -81,7 +104,7 @@ scripts\codex-selfcheck.cmd --skip-api
 
 都显示 `PASS`
 
-## 5. 执行真实 API 自检
+## 6. 执行真实 API 自检
 
 确认本地检查通过后，再做真实 API 检查：
 
@@ -101,7 +124,7 @@ scripts\codex-selfcheck.cmd --skip-api
 - 模型是否受当前中转服务支持
 - 本机网络或代理配置
 
-## 6. 最小运行方式
+## 7. 最小运行方式
 
 headless：
 
@@ -115,7 +138,7 @@ REPL：
 .\scripts\codex.ps1
 ```
 
-## 7. 常见问题
+## 8. 常见问题
 
 `未找到 bun，请先安装 Bun 并加入 PATH。`
 
@@ -132,11 +155,17 @@ REPL：
 - 说明本地环境没问题，但真实 API 请求没有通过。
 - 先检查 `~/.claude/codex-provider.json` 中的 `baseUrl`、`model`、`apiKey`。
 
-## 8. 推荐日常流程
+`install-codex` 失败
+
+- 说明安装链路中的某一步失败了。
+- 先看终端里最后一个失败步骤，是 `bun install`、`setup-codex` 还是 `codex-selfcheck`。
+
+## 9. 推荐日常流程
 
 首次部署：
 
 1. `bun install`
+2. 或者直接运行 `.\scripts\install-codex.ps1 ...`
 2. `.\scripts\setup-codex.ps1 ...`
 3. `.\scripts\codex-selfcheck.ps1 --skip-api`
 4. `.\scripts\codex-selfcheck.ps1`

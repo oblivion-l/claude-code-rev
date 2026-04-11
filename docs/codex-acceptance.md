@@ -90,6 +90,7 @@ CASE_TIMEOUT_SECONDS=60 bash scripts/codex-acceptance.sh --quick
 Windows 启动脚本：
 
 ```bat
+scripts\install-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
 scripts\setup-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 scripts\codex-selfcheck.cmd --skip-api
 scripts\codex-selfcheck.cmd
@@ -97,6 +98,7 @@ scripts\codex.cmd -p "Reply with OK only."
 ```
 
 ```powershell
+.\scripts\install-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
 .\scripts\setup-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 .\scripts\codex-selfcheck.ps1 --skip-api
 .\scripts\codex-selfcheck.ps1

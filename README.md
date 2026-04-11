@@ -89,6 +89,16 @@ bun run dev -p "Explain this repository"
 - Windows：优先使用 `scripts\codex.cmd` 或 `.\scripts\codex.ps1`
 - 如果使用第三方中转 API，可在本地配置文件中写入 `baseUrl` 和 `model`
 
+Windows 一键安装：
+
+```bat
+scripts\install-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
+```
+
+```powershell
+.\scripts\install-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
+```
+
 推荐先执行初始化脚本：
 
 ```bash

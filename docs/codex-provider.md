@@ -163,6 +163,7 @@ scripts\codex.cmd
 PowerShell 方式：
 
 ```powershell
+.\scripts\install-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
 .\scripts\setup-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 .\scripts\codex-selfcheck.ps1 --skip-api
 .\scripts\codex-selfcheck.ps1

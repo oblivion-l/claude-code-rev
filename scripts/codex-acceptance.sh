@@ -4,6 +4,7 @@ set -u
 
 MODE='full'
 DRY_RUN=0
+CASE_TIMEOUT_SECONDS="${CASE_TIMEOUT_SECONDS:-45}"
 
 usage() {
   cat <<'EOF'
@@ -58,8 +59,12 @@ print_env_summary() {
   echo "Repository: ${REPO_ROOT}"
   echo "Mode: ${MODE}"
   echo "Dry run: ${DRY_RUN}"
+  echo "Case timeout seconds: ${CASE_TIMEOUT_SECONDS}"
   echo "CLAUDE_CODE_USE_CODEX: ${CLAUDE_CODE_USE_CODEX}"
   echo "CODEX_MODEL: ${CODEX_MODEL}"
+  if [[ -n "${OPENAI_BASE_URL:-}" ]]; then
+    echo "OPENAI_BASE_URL: ${OPENAI_BASE_URL}"
+  fi
 }
 
 require_runtime_env() {
@@ -119,7 +124,8 @@ run_case() {
   local output_file
   output_file="$(mktemp)"
 
-  bash -lc "cd '$REPO_ROOT' && ${cmd}" >"${output_file}" 2>&1
+  timeout "${CASE_TIMEOUT_SECONDS}s" \
+    bash -lc "cd '$REPO_ROOT' && ${cmd}" >"${output_file}" 2>&1
   local exit_code=$?
 
   local passed=0
@@ -162,26 +168,26 @@ run_happy_path() {
   run_case \
     'Happy path: plain text prompt' \
     0 \
-    '' \
-    "bun run dev -p 'Explain the repository structure'"
+    'OK' \
+    "bun run dev -p 'Reply with OK only. Do not use any tools. Do not inspect files. Output exactly OK.'"
 
   run_case \
     'Happy path: json output' \
     0 \
-    'success' \
-    "bun run dev -p --output-format json 'List the top risks in this codebase'"
+    '\"subtype\":\"success\"|\"result\":\"OK\"' \
+    "bun run dev -p --output-format json 'Reply with OK only. Do not use any tools. Do not inspect files. Output exactly OK.'"
 
   run_case \
     'Happy path: structured output' \
     0 \
-    'summary' \
-    "bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return a JSON object with summary'"
+    '\"summary\":\"OK\"' \
+    "bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return exactly this JSON object and nothing else: {\"summary\":\"OK\"}'"
 
   run_case \
     'Happy path: structured output stream-json' \
     0 \
-    'codex_json_schema|parsed_result' \
-    "bun run dev -p --output-format stream-json --verbose --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return a JSON object with summary'"
+    'codex_json_schema|parsed_result|\"summary\":\"OK\"' \
+    "bun run dev -p --output-format stream-json --verbose --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return exactly this JSON object and nothing else: {\"summary\":\"OK\"}'"
 }
 
 run_fail_fast() {

@@ -56,17 +56,20 @@ bash scripts/codex-acceptance.sh --full
 - `--quick`：执行 preflight 和核心 happy path
 - `--full`：执行完整脚本清单，包括可确定的 fail-fast 场景
 - `--dry-run`：只打印将执行的命令，不实际运行
+- `CASE_TIMEOUT_SECONDS=<秒数>`：覆盖单条验收命令的超时时间，默认 `45`
 
 示例：
 
 ```bash
 bash scripts/codex-acceptance.sh --dry-run --quick
 bash scripts/codex-acceptance.sh --dry-run --full
+CASE_TIMEOUT_SECONDS=60 bash scripts/codex-acceptance.sh --quick
 ```
 
 说明：
 
 - 非 dry-run 模式下，如果 `OPENAI_API_KEY` 未设置，脚本会友好报错并提前退出
+- 脚本默认会为每条验收命令加 `45s` 超时，避免开放式回复拖慢整轮验收
 - 单条命令失败后，脚本会继续执行后续项，并在最后统一汇总
 - 只要有任一脚本化检查失败，脚本最终就会返回非零
 - API 侧 structured-output rejection 仍保留为手工检查项，因为它依赖“能到达 API 但会拒绝 `text.format`”的特定模型或 base URL 组合

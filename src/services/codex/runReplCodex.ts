@@ -288,7 +288,7 @@ function formatCodexReplMcpFailureReason(
   client: Exclude<MCPServerConnection, { type: 'connected' }>,
 ): string | undefined {
   if (client.type === 'failed') {
-    return client.error ?? 'connection failed'
+    return client.error?.trim() || 'connection failed'
   }
 
   if (client.type === 'needs-auth') {
@@ -297,15 +297,96 @@ function formatCodexReplMcpFailureReason(
 
   if (client.type === 'pending') {
     return client.reconnectAttempt
-      ? `connecting (attempt ${client.reconnectAttempt}/${client.maxReconnectAttempts ?? '?'})`
+      ? `connecting attempt ${client.reconnectAttempt}/${client.maxReconnectAttempts ?? '?'}`
       : 'connecting'
   }
 
   if (client.type === 'disabled') {
-    return 'disabled'
+    return 'disabled by configuration'
   }
 
   return undefined
+}
+
+function getCodexReplMcpTransport(
+  client: MCPServerConnection,
+): string {
+  return client.config.type ?? 'stdio'
+}
+
+function formatCodexReplMcpConfigSegments(
+  client: MCPServerConnection,
+): string[] {
+  const transport = getCodexReplMcpTransport(client)
+  const segments = [`transport=${transport}`, `scope=${client.config.scope}`]
+
+  if (client.config.pluginSource) {
+    segments.push(`plugin=${client.config.pluginSource}`)
+  }
+
+  switch (client.config.type) {
+    case undefined:
+    case 'stdio':
+      segments.push(
+        `command=${[client.config.command, ...(client.config.args ?? [])].join(' ')}`,
+      )
+      break
+    case 'http':
+    case 'sse':
+    case 'ws':
+    case 'sse-ide':
+    case 'ws-ide':
+      segments.push(`endpoint=${client.config.url}`)
+      if ('ideName' in client.config && client.config.ideName) {
+        segments.push(`ide=${client.config.ideName}`)
+      }
+      break
+    case 'sdk':
+      segments.push(`sdk=${client.config.name}`)
+      break
+    case 'claudeai-proxy':
+      segments.push(`endpoint=${client.config.url}`)
+      segments.push(`proxy-id=${client.config.id}`)
+      break
+  }
+
+  return segments
+}
+
+function formatCodexReplMcpCapabilities(client: MCPServerConnection): string {
+  if (client.type !== 'connected') {
+    return client.type
+  }
+
+  const capabilityKeys = Object.entries(client.capabilities)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key)
+    .sort((left, right) => left.localeCompare(right))
+
+  return capabilityKeys.length > 0 ? capabilityKeys.join(',') : 'none'
+}
+
+function formatCodexReplMcpServerInfo(client: MCPServerConnection): string {
+  if (client.type !== 'connected' || !client.serverInfo?.name) {
+    return 'unknown'
+  }
+
+  return client.serverInfo.version
+    ? `${client.serverInfo.name}@${client.serverInfo.version}`
+    : client.serverInfo.name
+}
+
+function findCodexReplMcpClient(options: {
+  runtime?: CodexToolRuntime
+  serverName?: string
+}): MCPServerConnection | undefined {
+  if (!options.runtime || !options.serverName) {
+    return undefined
+  }
+
+  return options.runtime.mcpClients.find(
+    client => client.name === options.serverName,
+  )
 }
 
 function summarizeCodexReplMcpClients(
@@ -328,13 +409,23 @@ function summarizeCodexReplMcpClients(
   ]
 
   for (const client of clients) {
-    const transport = client.config.type ?? 'stdio'
     const reason =
       client.type === 'connected'
         ? undefined
         : formatCodexReplMcpFailureReason(client)
+    const segments = formatCodexReplMcpConfigSegments(client)
+
+    if (client.type === 'connected') {
+      segments.push(`server=${formatCodexReplMcpServerInfo(client)}`)
+      segments.push(`capabilities=${formatCodexReplMcpCapabilities(client)}`)
+    }
+
+    if (reason) {
+      segments.push(`reason=${reason}`)
+    }
+
     lines.push(
-      `- ${client.name} [${client.type}] transport=${transport}${reason ? ` reason=${reason}` : ''}`,
+      `- ${client.name} [${client.type}] ${segments.join(' ')}`,
     )
   }
 
@@ -451,6 +542,52 @@ function formatCodexReplLastSavedAt(
   return state.updatedAt ?? 'not saved yet'
 }
 
+function formatCodexReplFunctionToolLine(args: {
+  tool: NonNullable<CodexToolRuntime['tools']>[number]
+  runtime?: CodexToolRuntime
+  discoveredToolNames: Set<string>
+}): string {
+  const source =
+    args.tool.name === TOOL_SEARCH_TOOL_NAME
+      ? 'tool-search'
+      : args.tool.isMcp
+        ? 'mcp-bridge'
+        : 'local'
+  const flags = [
+    isDeferredTool(args.tool) ? 'deferred' : null,
+    args.discoveredToolNames.has(args.tool.name) ? 'discovered' : null,
+  ].filter((value): value is string => value !== null)
+  const segments = flags.length > 0 ? [flags.join(', ')] : []
+
+  if (args.tool.isMcp) {
+    const client = findCodexReplMcpClient({
+      runtime: args.runtime,
+      serverName: args.tool.mcpInfo?.serverName,
+    })
+
+    segments.push(`server=${args.tool.mcpInfo?.serverName ?? 'unknown'}`)
+    segments.push(`tool=${args.tool.mcpInfo?.toolName ?? args.tool.name}`)
+
+    if (client) {
+      segments.push(`status=${client.type}`)
+      segments.push(...formatCodexReplMcpConfigSegments(client))
+      if (client.type === 'connected') {
+        segments.push(`capabilities=${formatCodexReplMcpCapabilities(client)}`)
+      } else {
+        const reason = formatCodexReplMcpFailureReason(client)
+        if (reason) {
+          segments.push(`reason=${reason}`)
+        }
+      }
+    } else {
+      segments.push('status=unavailable')
+      segments.push('reason=bridge server not connected')
+    }
+  }
+
+  return `- ${args.tool.name} [${source}]${segments.length > 0 ? ` ${segments.join(' ')}` : ''}`
+}
+
 function summarizeCodexReplFunctionTools(args: {
   runtime?: CodexToolRuntime
   discoveredToolNames: Set<string>
@@ -471,18 +608,12 @@ function summarizeCodexReplFunctionTools(args: {
   for (const tool of [...selectedTools].sort((left, right) =>
     left.name.localeCompare(right.name),
   )) {
-    const source =
-      tool.name === TOOL_SEARCH_TOOL_NAME
-        ? 'tool-search'
-        : tool.isMcp
-          ? 'mcp-bridge'
-          : 'local'
-    const flags = [
-      isDeferredTool(tool) ? 'deferred' : null,
-      args.discoveredToolNames.has(tool.name) ? 'discovered' : null,
-    ].filter((value): value is string => value !== null)
     lines.push(
-      `- ${tool.name} [${source}]${flags.length > 0 ? ` ${flags.join(', ')}` : ''}`,
+      formatCodexReplFunctionToolLine({
+        tool,
+        runtime: args.runtime,
+        discoveredToolNames: args.discoveredToolNames,
+      }),
     )
   }
 
@@ -491,12 +622,20 @@ function summarizeCodexReplFunctionTools(args: {
     .filter(
       tool => !selectedTools.some(selectedTool => selectedTool.name === tool.name),
     )
-    .map(tool => tool.name)
-    .sort((left, right) => left.localeCompare(right))
+    .sort((left, right) => left.name.localeCompare(right.name))
   if (hiddenDeferredTools.length > 0) {
     lines.push(
-      `Deferred tools hidden until ToolSearch selects them: ${hiddenDeferredTools.join(', ')}`,
+      `Deferred tools hidden until ToolSearch selects them: ${hiddenDeferredTools.length}`,
     )
+    for (const tool of hiddenDeferredTools) {
+      lines.push(
+        formatCodexReplFunctionToolLine({
+          tool,
+          runtime: args.runtime,
+          discoveredToolNames: args.discoveredToolNames,
+        }),
+      )
+    }
   }
 
   return lines

@@ -278,6 +278,7 @@ bun run dev
   - 列出最近持久化的 Codex REPL 会话，包含 state id、cwd、最近保存时间和 model。
 - `/status`
   - 查看当前 provider、model、base URL、session id、当前目录、conversation state、state 文件路径、最后保存时间，以及 MCP 连接状态。
+  - 对每个 MCP bridge server 额外显示 `scope/plugin` 来源、目标端点（`command` 或 `endpoint`）、连接后 server info 与 capabilities，失败时统一输出 `reason=...`。
 - `/resume`
   - 按当前工作目录加载最近一次持久化的 Codex REPL conversation state。
 - `/resume <state-id>`
@@ -286,6 +287,7 @@ bun run dev
   - 查看当前实际使用的模型与 API base URL。
 - `/tools`
   - 查看当前暴露给 Codex 的本地 function tools、bridge MCP 工具可见性、远程 MCP passthrough，以及 MCP bridge 连接状态。
+  - MCP bridge tool 会联动显示所属 `server`、当前 `status`、来源与端点信息，便于定位是 ToolSearch 未发现、bridge 未连通，还是 server 鉴权/配置异常。
 - `/exit`
   - 退出当前 Codex REPL。
 
@@ -333,6 +335,8 @@ codex> /exit
 - 当前 state 最后保存时间
 - 本地 MCP bridge server 的连接状态统计
 - 每个 MCP server 的 transport、失败原因或鉴权状态
+- 每个 MCP server 的 scope / plugin 来源、目标 command 或 endpoint
+- 已连接 server 的 server info / capabilities 摘要
 - 远程 MCP passthrough server 列表
 
 `/tools` 输出重点：
@@ -344,6 +348,7 @@ codex> /exit
   - `[mcp-bridge]`：通过本地 MCP client bridge 暴露给 Codex 的工具
   - `[remote-mcp]`：直接透传给 Codex API 的远程 MCP server
 - deferred tools 是否仍隐藏，等待 ToolSearch 选择后再暴露
+- 若 deferred tool 来自 MCP bridge，会显示其所属 server、当前状态、来源和端点信息
 - 本地 MCP bridge server 的连接状态和失败原因
 
 ## 验收说明

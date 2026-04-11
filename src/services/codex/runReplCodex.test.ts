@@ -146,7 +146,10 @@ function createFakeRuntime(
   }
 }
 
-function createConnectedMcpClient(name: string): MCPServerConnection {
+function createConnectedMcpClient(
+  name: string,
+  overrides?: Partial<Extract<MCPServerConnection, { type: 'connected' }>>,
+): MCPServerConnection {
   return {
     name,
     type: 'connected',
@@ -160,12 +163,14 @@ function createConnectedMcpClient(name: string): MCPServerConnection {
       args: ['server.js'],
       scope: 'user',
     },
+    ...overrides,
   }
 }
 
 function createFailedMcpClient(
   name: string,
   error = 'connection failed',
+  overrides?: Partial<Extract<MCPServerConnection, { type: 'failed' }>>,
 ): MCPServerConnection {
   return {
     name,
@@ -176,6 +181,7 @@ function createFailedMcpClient(
       url: 'https://example.com/mcp',
       scope: 'user',
     },
+    ...overrides,
   }
 }
 
@@ -1070,7 +1076,14 @@ describe('createCodexReplSession', () => {
         [createFakeTool('Read')],
         [
           createConnectedMcpClient('docs'),
-          createFailedMcpClient('github', 'auth expired'),
+          createFailedMcpClient('github', 'auth expired', {
+            config: {
+              type: 'http',
+              url: 'https://example.com/github-mcp',
+              scope: 'project',
+              pluginSource: 'github@acme',
+            },
+          }),
         ],
       ),
       mcpTools: [
@@ -1117,7 +1130,10 @@ describe('createCodexReplSession', () => {
       'MCP bridge servers: 2 total (1 connected, 0 pending, 1 failed, 0 needs-auth, 0 disabled)',
     )
     expect(lines).toContain(
-      '- github [failed] transport=http reason=auth expired',
+      '- docs [connected] transport=stdio scope=user command=node server.js server=unknown capabilities=tools',
+    )
+    expect(lines).toContain(
+      '- github [failed] transport=http scope=project plugin=github@acme endpoint=https://example.com/github-mcp reason=auth expired',
     )
     expect(lines).toContain(
       '- remote-docs [remote-mcp] url=https://example.com/remote-mcp',
@@ -1144,7 +1160,24 @@ describe('createCodexReplSession', () => {
     const session = createCodexReplSession({
       runtime: createFakeRuntime(
         [createFakeTool('Read'), ToolSearchTool, bridgedMcpTool],
-        [createConnectedMcpClient('docs')],
+        [
+          createConnectedMcpClient('docs', {
+            config: {
+              command: 'node',
+              args: ['docs-server.js'],
+              scope: 'project',
+              pluginSource: 'docs@acme',
+            },
+            serverInfo: {
+              name: 'docs-server',
+              version: '1.2.3',
+            },
+            capabilities: {
+              tools: {},
+              resources: {},
+            },
+          }),
+        ],
       ),
       mcpTools: [
         {
@@ -1167,7 +1200,10 @@ describe('createCodexReplSession', () => {
     expect(lines).toContain('- Read [local]')
     expect(lines).toContain('- ToolSearch [tool-search]')
     expect(lines).toContain(
-      'Deferred tools hidden until ToolSearch selects them: mcp__docs__search',
+      'Deferred tools hidden until ToolSearch selects them: 1',
+    )
+    expect(lines).toContain(
+      '- mcp__docs__search [mcp-bridge] deferred server=docs tool=search status=connected transport=stdio scope=project plugin=docs@acme command=node docs-server.js capabilities=resources,tools',
     )
     expect(lines).toContain(
       '- remote-docs [remote-mcp] url=https://example.com/remote-mcp',
@@ -1280,10 +1316,18 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines[0]).toBe('Recent persisted Codex REPL sessions: 2')
-    expect(lines[1]).toContain('- session_new cwd=/tmp/project-new')
-    expect(lines[1]).toContain('model=gpt-5.4')
-    expect(lines[2]).toContain('- session_old cwd=/tmp/project-old')
-    expect(lines[2]).toContain('model=gpt-5-codex')
+    expect(lines.slice(1)).toContainEqual(
+      expect.stringContaining('- session_new cwd=/tmp/project-new'),
+    )
+    expect(lines.slice(1)).toContainEqual(
+      expect.stringContaining('model=gpt-5.4'),
+    )
+    expect(lines.slice(1)).toContainEqual(
+      expect.stringContaining('- session_old cwd=/tmp/project-old'),
+    )
+    expect(lines.slice(1)).toContainEqual(
+      expect.stringContaining('model=gpt-5-codex'),
+    )
   })
 
   it('shows an empty message when no persisted sessions exist for /sessions', async () => {

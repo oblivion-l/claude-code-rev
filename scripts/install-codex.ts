@@ -4,8 +4,10 @@ type InstallOptions = {
   model?: string
   organization?: string
   project?: string
+  launcherDir?: string
   skipApi: boolean
   skipInstall: boolean
+  skipLaunchers: boolean
 }
 
 type Step = {
@@ -24,14 +26,17 @@ function printUsage(): void {
       '  --model <value>        传给 setup-codex 的 model',
       '  --org-id <value>       传给 setup-codex 的 organization',
       '  --project-id <value>   传给 setup-codex 的 project',
+      '  --launcher-dir <path>  launcher 输出目录，默认 ~/.claude/bin',
       '  --skip-install         跳过 bun install',
+      '  --skip-launchers       跳过 launcher 生成',
       '  --skip-api             自检时只做本地检查，不发真实 API 请求',
       '  --help                 显示帮助',
       '',
       '默认流程：',
       '  1. bun install',
       '  2. bun run codex:setup ...',
-      '  3. bun run codex:selfcheck [--skip-api]',
+      '  3. bun run codex:install-launchers',
+      '  4. bun run codex:selfcheck [--skip-api]',
       '',
     ].join('\n'),
   )
@@ -41,6 +46,7 @@ function parseArgs(argv: string[]): InstallOptions {
   const options: InstallOptions = {
     skipApi: false,
     skipInstall: false,
+    skipLaunchers: false,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -61,6 +67,11 @@ function parseArgs(argv: string[]): InstallOptions {
 
     if (current === '--skip-install') {
       options.skipInstall = true
+      continue
+    }
+
+    if (current === '--skip-launchers') {
+      options.skipLaunchers = true
       continue
     }
 
@@ -88,6 +99,10 @@ function parseArgs(argv: string[]): InstallOptions {
         break
       case '--project-id':
         options.project = nextValue
+        index += 1
+        break
+      case '--launcher-dir':
+        options.launcherDir = nextValue
         index += 1
         break
       default:
@@ -125,6 +140,16 @@ function buildSelfCheckCommand(options: InstallOptions): string[] {
 
   if (options.skipApi) {
     command.push('--skip-api')
+  }
+
+  return command
+}
+
+function buildLauncherCommand(options: InstallOptions): string[] {
+  const command = ['bun', 'run', 'codex:install-launchers']
+
+  if (options.launcherDir) {
+    command.push('--launcher-dir', options.launcherDir)
   }
 
   return command
@@ -171,6 +196,13 @@ function main(): void {
     command: buildSetupCommand(options),
   })
 
+  if (!options.skipLaunchers) {
+    steps.push({
+      name: '生成 Windows launcher',
+      command: buildLauncherCommand(options),
+    })
+  }
+
   steps.push({
     name: options.skipApi ? '执行本地自检' : '执行完整自检',
     command: buildSelfCheckCommand(options),
@@ -188,6 +220,9 @@ function main(): void {
       '  scripts/codex.cmd -p "Reply with OK only."',
       '  ./scripts/codex.ps1 -p "Reply with OK only."',
       '  ./scripts/codex.ps1',
+      options.skipLaunchers
+        ? '  (已跳过 launcher 生成)'
+        : `  launcher 目录：${options.launcherDir ?? '~/.claude/bin'}`,
       '',
     ].join('\n'),
   )

@@ -151,6 +151,7 @@ export OPENAI_PROJECT_ID=proj_123
 - 优先使用已有环境变量
 - 当未设置 `OPENAI_API_KEY` 时，检查 `~/.claude/codex-provider.json`
 - 用当前仓库的 CLI bootstrap 启动 Codex provider
+- 安装器可额外生成 launcher 到 `~/.claude/bin`
 
 `cmd` 方式：
 
@@ -170,6 +171,14 @@ PowerShell 方式：
 .\scripts\codex.ps1 -p "Explain this repository"
 .\scripts\codex.ps1
 ```
+
+如果需要单独重建 launcher：
+
+```powershell
+bun run codex:install-launchers
+```
+
+默认输出到 `~/.claude/bin`。如果你把这个目录加入 Windows PATH，后续可以不进仓库目录直接运行这些脚本。
 
 Windows 首次部署建议参考：
 

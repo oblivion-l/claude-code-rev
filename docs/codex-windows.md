@@ -55,10 +55,17 @@ scripts\install-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc
 
 - 默认会执行 `bun install`
 - 会自动调用 `setup-codex`
+- 会自动生成 launcher 到 `~/.claude/bin`
 - 会自动调用 `codex-selfcheck`
 - 加 `--skip-api` 时，只做本地自检，不发真实 API 请求
 
 如果你希望保留手工分步控制，再继续看下面的分步方式。
+
+可选：
+
+- `--skip-install`：跳过 `bun install`
+- `--skip-launchers`：跳过 launcher 生成
+- `--launcher-dir <path>`：自定义 launcher 输出目录
 
 ## 4. 初始化 Codex 配置
 
@@ -138,6 +145,13 @@ REPL：
 .\scripts\codex.ps1
 ```
 
+如果已经把 `~/.claude/bin` 加入 Windows PATH，也可以直接运行新生成的 launcher：
+
+```powershell
+codex.ps1 -p "Reply with OK only."
+codex-selfcheck.ps1 --skip-api
+```
+
 ## 8. 常见问题
 
 `未找到 bun，请先安装 Bun 并加入 PATH。`
@@ -159,6 +173,11 @@ REPL：
 
 - 说明安装链路中的某一步失败了。
 - 先看终端里最后一个失败步骤，是 `bun install`、`setup-codex` 还是 `codex-selfcheck`。
+
+找不到 `codex.ps1` / `codex.cmd`
+
+- 说明 launcher 目录还没加入 PATH，或安装时跳过了 launcher 生成。
+- 可重新执行 `bun run codex:install-launchers`，或在安装器里不要加 `--skip-launchers`。
 
 ## 9. 推荐日常流程
 

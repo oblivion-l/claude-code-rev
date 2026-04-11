@@ -99,6 +99,8 @@ scripts\install-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc
 .\scripts\install-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
 ```
 
+安装器默认还会生成 launcher 到 `~/.claude/bin`，后续可把该目录加入 Windows PATH。
+
 推荐先执行初始化脚本：
 
 ```bash

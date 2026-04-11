@@ -92,6 +92,7 @@ Windows 启动脚本：
 ```bat
 scripts\install-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
 scripts\setup-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
+bun run codex:install-launchers
 scripts\codex-selfcheck.cmd --skip-api
 scripts\codex-selfcheck.cmd
 scripts\codex.cmd -p "Reply with OK only."
@@ -100,6 +101,7 @@ scripts\codex.cmd -p "Reply with OK only."
 ```powershell
 .\scripts\install-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4 --skip-api
 .\scripts\setup-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
+bun run codex:install-launchers
 .\scripts\codex-selfcheck.ps1 --skip-api
 .\scripts\codex-selfcheck.ps1
 .\scripts\codex.ps1 -p "Reply with OK only."

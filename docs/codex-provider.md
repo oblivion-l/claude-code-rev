@@ -377,6 +377,11 @@ API 侧 schema 拒绝或不支持关键字
 - 说明请求里启用了 Codex 本地 function tools，但 API 明确拒绝了 `tools` 参数或对应能力组合。
 - 这通常表示当前模型或当前 Responses API 参数组合不支持本地 function tools。
 
+`Codex locally bridged MCP tools are not supported for model ... or this API parameter set`
+
+- 说明你当前使用的是通过本仓库 MCP client 桥接出来的 MCP 工具，而不是直接透传的远程 `mcp` tool。
+- 这通常表示当前模型或当前 Responses API 参数组合不支持这类 function-tool 形式的桥接工具。
+
 `Codex provider currently does not support remote MCP tools in --print mode.`
 
 - 说明你触发了超出当前 headless capability matrix 的工具组合。

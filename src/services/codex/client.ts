@@ -34,6 +34,7 @@ async function buildHttpError({
         model,
         usedStructuredOutput,
         usedMcpTools: toolingUsage.usedMcpTools,
+        usedBridgedMcpTools: toolingUsage.usedBridgedMcpTools,
         usedFunctionTools: toolingUsage.usedFunctionTools,
       }),
     )

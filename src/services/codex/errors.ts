@@ -38,6 +38,7 @@ export function formatCodexApiError({
   model,
   usedStructuredOutput,
   usedMcpTools,
+  usedBridgedMcpTools,
   usedFunctionTools,
 }: {
   status: number
@@ -45,6 +46,7 @@ export function formatCodexApiError({
   model: string
   usedStructuredOutput: boolean
   usedMcpTools?: boolean
+  usedBridgedMcpTools?: boolean
   usedFunctionTools?: boolean
 }): string {
   const message = getErrorMessage(body)
@@ -94,8 +96,18 @@ export function formatCodexApiError({
         message.toLowerCase().includes('not supported')
     )
   ) {
-    if (usedMcpTools && usedFunctionTools) {
+    const usedPlainFunctionTools =
+      usedFunctionTools && !usedBridgedMcpTools
+
+    if (
+      usedMcpTools && usedFunctionTools ||
+      usedBridgedMcpTools && usedPlainFunctionTools
+    ) {
       return `Codex tools are not supported for model ${model} or this API parameter set: ${message ?? `HTTP ${status}`}`
+    }
+
+    if (usedBridgedMcpTools) {
+      return `Codex locally bridged MCP tools are not supported for model ${model} or this API parameter set: ${message ?? `HTTP ${status}`}`
     }
 
     if (usedFunctionTools) {

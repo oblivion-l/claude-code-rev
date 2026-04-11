@@ -1,4 +1,8 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { z } from 'zod/v4'
+import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
+import type { MCPServerConnection } from 'src/services/mcp/types.js'
+import type { CodexToolRuntime } from './toolRuntime.js'
 import {
   runHeadlessCodex,
 } from './runHeadlessCodex.js'
@@ -23,6 +27,117 @@ function buildSseResponse(events: unknown[]): Response {
       'Content-Type': 'text/event-stream',
     },
   })
+}
+
+function createFakeTool(
+  name: string,
+  overrides?: Partial<Tool>,
+): Tool {
+  return {
+    name,
+    inputSchema: z.object({
+      query: z.string().optional(),
+    }),
+    async call(input) {
+      return {
+        data: {
+          ok: input.query ?? 'done',
+        },
+      }
+    },
+    async description() {
+      return `${name} description`
+    },
+    async prompt() {
+      return `${name} prompt`
+    },
+    async checkPermissions() {
+      return {
+        behavior: 'allow',
+        updatedInput: undefined,
+        decisionReason: {
+          type: 'mode',
+          mode: 'default',
+        },
+      }
+    },
+    isConcurrencySafe() {
+      return false
+    },
+    isEnabled() {
+      return true
+    },
+    isReadOnly() {
+      return true
+    },
+    userFacingName() {
+      return name
+    },
+    toAutoClassifierInput() {
+      return ''
+    },
+    mapToolResultToToolResultBlockParam(content, toolUseID) {
+      return {
+        type: 'tool_result',
+        tool_use_id: toolUseID,
+        content: JSON.stringify(content),
+      }
+    },
+    renderToolUseMessage() {
+      return null
+    },
+    maxResultSizeChars: 1000,
+    ...overrides,
+  } as unknown as Tool
+}
+
+function createConnectedMcpClient(name: string): MCPServerConnection {
+  return {
+    name,
+    type: 'connected',
+    capabilities: {
+      tools: {},
+    },
+    client: {} as never,
+    cleanup: async () => {},
+    config: {
+      command: 'node',
+      args: ['server.js'],
+      scope: 'user',
+    },
+  }
+}
+
+function createFakeRuntime(
+  tools: Tool[],
+  mcpClients: MCPServerConnection[] = [],
+): CodexToolRuntime {
+  let appState: any = {
+    toolPermissionContext: getEmptyToolPermissionContext(),
+    fileHistory: {},
+    attribution: {},
+    sessionHooks: new Map(),
+  }
+
+  return {
+    cwd: '/tmp/project',
+    commands: [],
+    tools,
+    mcpClients,
+    agents: [],
+    canUseTool: async () => ({
+      behavior: 'allow',
+      updatedInput: undefined,
+      decisionReason: {
+        type: 'mode',
+        mode: 'default',
+      },
+    }),
+    getAppState: () => appState,
+    setAppState: updater => {
+      appState = updater(appState)
+    },
+  }
 }
 
 afterEach(() => {
@@ -97,6 +212,113 @@ describe('runHeadlessCodex', () => {
         type: 'result',
         subtype: 'success',
         result: 'OK',
+      }),
+    )
+  })
+
+  it('executes locally bridged MCP tools through the shared headless runtime', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+      async description() {
+        return 'docs search description'
+      },
+      async prompt() {
+        return 'docs search prompt'
+      },
+    })
+
+    const requestBodies: Record<string, unknown>[] = []
+    let requestCount = 0
+
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestBodies.push(requestBody)
+      requestCount += 1
+
+      if (requestCount === 1) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_tool_round',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'mcp__docs__search',
+                  call_id: 'call_mcp_1',
+                  arguments: '{"query":"bun install"}',
+                },
+              ],
+              usage: {
+                input_tokens: 8,
+                output_tokens: 3,
+              },
+            },
+          },
+        ])
+      }
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_final',
+            output_text: 'Bridge complete',
+            usage: {
+              input_tokens: 4,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const writes: unknown[] = []
+    const structuredIO = {
+      write: async (message: unknown) => {
+        writes.push(message)
+      },
+    }
+
+    const result = await runHeadlessCodex({
+      inputPrompt: 'Use docs MCP',
+      structuredIO: structuredIO as any,
+      options: {
+        outputFormat: 'stream-json',
+      } as any,
+      runtime: createFakeRuntime([bridgedMcpTool], [
+        createConnectedMcpClient('docs'),
+      ]),
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(requestBodies).toHaveLength(2)
+    expect(requestBodies[0]?.tools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'mcp__docs__search',
+      }),
+    ])
+    expect(requestBodies[1]?.previous_response_id).toBe('resp_tool_round')
+    expect(requestBodies[1]?.input).toEqual([
+      {
+        type: 'function_call_output',
+        call_id: 'call_mcp_1',
+        output: '{"ok":"bun install"}',
+      },
+    ])
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        type: 'result',
+        subtype: 'success',
+        result: 'Bridge complete',
       }),
     )
   })

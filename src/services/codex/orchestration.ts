@@ -16,6 +16,7 @@ export const CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS = 8
 
 export type CodexToolingUsage = {
   usedMcpTools: boolean
+  usedBridgedMcpTools: boolean
   usedFunctionTools: boolean
 }
 
@@ -29,8 +30,13 @@ export type CodexToolOrchestration = {
 export function summarizeCodexRequestTooling(
   requestTools: CodexRequestTool[],
 ): CodexToolingUsage {
+  const usedBridgedMcpTools = requestTools.some(
+    tool => tool.type === 'function' && tool.name.startsWith('mcp__'),
+  )
+
   return {
     usedMcpTools: requestTools.some(tool => tool.type === 'mcp'),
+    usedBridgedMcpTools,
     usedFunctionTools: requestTools.some(tool => tool.type === 'function'),
   }
 }

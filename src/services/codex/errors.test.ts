@@ -38,6 +38,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-4o-mini',
         usedStructuredOutput: false,
         usedMcpTools: false,
+        usedBridgedMcpTools: false,
         usedFunctionTools: false,
       }),
     ).toContain('Codex model gpt-4o-mini is not supported for this request')
@@ -57,6 +58,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: true,
         usedMcpTools: false,
+        usedBridgedMcpTools: false,
         usedFunctionTools: false,
       }),
     ).toContain('Codex structured outputs are not supported for model gpt-5-codex')
@@ -75,6 +77,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: true,
         usedMcpTools: false,
+        usedBridgedMcpTools: false,
         usedFunctionTools: false,
       }),
     ).toContain(
@@ -96,6 +99,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: false,
         usedMcpTools: true,
+        usedBridgedMcpTools: false,
         usedFunctionTools: false,
       }),
     ).toContain('Codex MCP tools are not supported for model gpt-5-codex')
@@ -115,10 +119,33 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: false,
         usedMcpTools: false,
+        usedBridgedMcpTools: false,
         usedFunctionTools: true,
       }),
     ).toContain(
       'Codex local function tools are not supported for model gpt-5-codex',
+    )
+  })
+
+  it('formats bridged MCP tool rejections clearly', () => {
+    expect(
+      formatCodexApiError({
+        status: 400,
+        body: {
+          error: {
+            message: 'Unsupported parameter: tools[0].type',
+            param: 'tools[0].type',
+            code: 'unsupported_parameter',
+          },
+        },
+        model: 'gpt-5-codex',
+        usedStructuredOutput: false,
+        usedMcpTools: false,
+        usedBridgedMcpTools: true,
+        usedFunctionTools: true,
+      }),
+    ).toContain(
+      'Codex locally bridged MCP tools are not supported for model gpt-5-codex',
     )
   })
 
@@ -136,6 +163,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: false,
         usedMcpTools: true,
+        usedBridgedMcpTools: false,
         usedFunctionTools: true,
       }),
     ).toContain('Codex tools are not supported for model gpt-5-codex')
@@ -153,6 +181,7 @@ describe('formatCodexApiError', () => {
         model: 'gpt-5-codex',
         usedStructuredOutput: false,
         usedMcpTools: false,
+        usedBridgedMcpTools: false,
         usedFunctionTools: false,
       }),
     ).toBe('Codex API error (429): Rate limit exceeded')

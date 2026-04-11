@@ -1276,7 +1276,65 @@ describe('createCodexReplSession', () => {
       '- ToolSearch [tool-search] decision=selected, selection-reason=tool-search-for-deferred',
     )
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] deferred, discovered, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools',
+      '- mcp__docs__search [mcp-bridge] deferred, discovered, recovered=false, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools',
+    )
+  })
+
+  it('shows recovered=true in /tools when a discovered deferred bridge tool matches again after reconnect', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    resetHooksConfigSnapshot()
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [
+          createConnectedMcpClient('docs', {
+            config: {
+              command: 'node',
+              args: ['docs-server.js'],
+              scope: 'project',
+            },
+          }),
+        ],
+      ),
+      conversationState: {
+        providerId: 'codex-repl',
+        stateId: 'recovered_tools_state',
+        conversationId: 'recovered_tools_state',
+        metadata: {
+          codexDiscoveredToolNames: ['mcp__docs__search'],
+          codexDiscoveredToolSignatures: {
+            mcp__docs__search:
+              'mcp-bridge:mcp__docs__search:docs:stdio:project::node:docs-server.js',
+          },
+        },
+      },
+    })
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/tools',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toContain('Function tools exposed: 2')
+    expect(lines).toContain(
+      '- mcp__docs__search [mcp-bridge] deferred, discovered, recovered=true, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools',
     )
   })
 

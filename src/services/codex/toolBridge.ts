@@ -56,6 +56,7 @@ export type CodexFunctionToolVisibility = {
   priority: number
   deferred: boolean
   discovered: boolean
+  recovered: boolean
   selected: boolean
   reason:
     | 'always-visible'
@@ -68,25 +69,34 @@ export type CodexFunctionToolVisibility = {
   signature?: string
 }
 
+function getCodexBridgeMcpClientForTool(
+  tool: Tool,
+  runtime?: CodexToolRuntime,
+): MCPServerConnection | null {
+  if (!tool.isMcp || !tool.mcpInfo || !runtime) {
+    return null
+  }
+
+  const matchingClients = runtime.mcpClients.filter(
+    candidate => candidate.name === tool.mcpInfo?.serverName,
+  )
+  const connectedClient = matchingClients.find(
+    candidate => candidate.type === 'connected',
+  )
+  const client = connectedClient ?? matchingClients[0]
+
+  if (!client) {
+    return null
+  }
+
+  return isCodexMcpConfigHandledByLocalBridge(client.config) ? client : null
+}
+
 function isCodexLocalBridgeMcpTool(
   tool: Tool,
   runtime?: CodexToolRuntime,
 ): boolean {
-  if (!tool.isMcp || !tool.mcpInfo || !runtime) {
-    return false
-  }
-
-  const client = runtime.mcpClients.find(
-    candidate =>
-      candidate.type === 'connected' &&
-      candidate.name === tool.mcpInfo?.serverName,
-  )
-
-  if (!client) {
-    return false
-  }
-
-  return isCodexMcpConfigHandledByLocalBridge(client.config)
+  return getCodexBridgeMcpClientForTool(tool, runtime) !== null
 }
 
 function isCodexToolSearchTool(tool: Tool): boolean {
@@ -211,6 +221,7 @@ function getCodexFunctionToolBaseVisibility(args: {
   const deferred = isDeferredTool(args.tool)
   const discovered = args.discoveredToolNames.has(args.tool.name)
   const signature = getCodexFunctionToolSignature(args.tool, args.runtime)
+  const discoveredSignature = args.discoveredToolSignatures.get(args.tool.name)
 
   if (source === 'tool-search') {
     return {
@@ -220,6 +231,7 @@ function getCodexFunctionToolBaseVisibility(args: {
       priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
       deferred,
       discovered,
+      recovered: false,
       signature,
       baseVisible: false,
       baseReason: 'tool-search-for-deferred',
@@ -234,6 +246,7 @@ function getCodexFunctionToolBaseVisibility(args: {
       priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
       deferred,
       discovered,
+      recovered: false,
       signature,
       baseVisible: true,
       baseReason: 'always-visible',
@@ -248,13 +261,28 @@ function getCodexFunctionToolBaseVisibility(args: {
       priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
       deferred,
       discovered,
+      recovered: false,
       signature,
       baseVisible: false,
       baseReason: 'awaiting-tool-search',
     }
   }
 
-  const discoveredSignature = args.discoveredToolSignatures.get(args.tool.name)
+  if (source === 'mcp-bridge' && !signature) {
+    return {
+      tool: args.tool,
+      name: args.tool.name,
+      source,
+      priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
+      deferred,
+      discovered,
+      recovered: false,
+      signature,
+      baseVisible: false,
+      baseReason: 'stale-discovery',
+    }
+  }
+
   if (
     discoveredSignature &&
     signature &&
@@ -267,6 +295,7 @@ function getCodexFunctionToolBaseVisibility(args: {
       priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
       deferred,
       discovered,
+      recovered: false,
       signature,
       baseVisible: false,
       baseReason: 'stale-discovery',
@@ -280,6 +309,7 @@ function getCodexFunctionToolBaseVisibility(args: {
     priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
     deferred,
     discovered,
+    recovered: Boolean(discoveredSignature && signature),
     signature,
     baseVisible: true,
     baseReason: discoveredSignature
@@ -339,7 +369,8 @@ export function analyzeCodexFunctionToolVisibility(
     .map(candidate => {
       if (
         toolSearchCandidates.length === 0 &&
-        candidate.baseReason === 'awaiting-tool-search'
+        candidate.baseReason === 'awaiting-tool-search' &&
+        candidate.signature
       ) {
         return {
           ...candidate,
@@ -384,6 +415,7 @@ export function analyzeCodexFunctionToolVisibility(
       priority: leader.priority,
       deferred: leader.deferred,
       discovered: leader.discovered,
+      recovered: leader.recovered && leader.baseVisible,
       signature: leader.signature,
       selected: leader.baseVisible,
       reason: leader.baseReason,
@@ -397,6 +429,7 @@ export function analyzeCodexFunctionToolVisibility(
         priority: duplicate.priority,
         deferred: duplicate.deferred,
         discovered: duplicate.discovered,
+        recovered: false,
         signature: duplicate.signature,
         selected: false,
         reason: 'duplicate-lower-priority',
@@ -415,6 +448,7 @@ export function analyzeCodexFunctionToolVisibility(
         priority: candidate.priority,
         deferred: candidate.deferred,
         discovered: candidate.discovered,
+        recovered: false,
         signature: candidate.signature,
         selected: true,
         reason: 'tool-search-for-deferred' as const,

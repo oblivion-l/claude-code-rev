@@ -293,6 +293,7 @@ bun run dev
 - `/tools`
   - 查看当前暴露给 Codex 的本地 function tools、bridge MCP 工具可见性、远程 MCP passthrough，以及 MCP bridge 连接状态。
   - 每个 function tool 都会显示 `decision=` 与 `selection-reason=`，用于解释它为何被选中或隐藏。
+  - 对已发现的 deferred bridge 工具，`/tools` 还会显示 `recovered=true|false`，用于快速判断当前 live source 是否已经回到与已发现签名一致的可用状态。
   - MCP bridge tool 会联动显示所属 `server`、当前 `status`、来源与端点信息，便于定位是 ToolSearch 未发现、bridge 未连通，还是 server 鉴权/配置异常。
 - `/exit`
   - 退出当前 Codex REPL。
@@ -366,6 +367,7 @@ codex> /exit
   - `stale-discovery`
   - `duplicate-lower-priority`
   - `tool-search-for-deferred`
+- 对已发现的 deferred bridge 工具，`recovered=true` 表示当前 live source 已重新匹配已记录的 discovered signature；`recovered=false` 表示它仍处于 `stale-discovery` 或其他未恢复状态
 - deferred tools 是否仍隐藏，等待 ToolSearch 选择后再暴露
 - 若 deferred tool 来自 MCP bridge，会显示其所属 server、当前状态、来源和端点信息
 - 本地 MCP bridge server 的连接状态和失败原因

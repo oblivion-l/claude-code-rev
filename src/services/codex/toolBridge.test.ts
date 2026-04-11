@@ -174,6 +174,19 @@ function createConnectedMcpClient(name: string): MCPServerConnection {
   }
 }
 
+function createFailedMcpClient(name: string): MCPServerConnection {
+  return {
+    name,
+    type: 'failed',
+    error: 'connection lost',
+    config: {
+      command: 'node',
+      args: ['server.js'],
+      scope: 'user',
+    },
+  }
+}
+
 describe('selectCodexFunctionTools', () => {
   it('keeps only the supported local development tools', () => {
     const readTool = createFakeTool('Read')
@@ -341,6 +354,89 @@ describe('selectCodexFunctionTools', () => {
       discoveredToolNames: new Set(['mcp__docs__search']),
       discoveredToolSignatures: staleSignatures,
     })).toEqual([ToolSearchTool])
+  })
+
+  it('keeps discovered bridge tools selected, hides them when disconnected, and restores them after reconnect', () => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const connectedRuntime = createFakeRuntime(
+      [ToolSearchTool, bridgedMcpTool],
+      [createConnectedMcpClient('docs')],
+    )
+    const discoveredToolNames = new Set(['mcp__docs__search'])
+    const discoveredToolSignatures = getCodexDiscoveredToolSignatureMap(
+      connectedRuntime.tools,
+      connectedRuntime,
+    )
+
+    expect(
+      analyzeCodexFunctionToolVisibility(
+        connectedRuntime.tools,
+        connectedRuntime,
+        {
+          discoveredToolNames,
+          discoveredToolSignatures,
+        },
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'mcp__docs__search',
+        selected: true,
+        recovered: true,
+        reason: 'discovered-match',
+      }),
+    )
+
+    const disconnectedRuntime = createFakeRuntime(
+      [ToolSearchTool, bridgedMcpTool],
+      [createFailedMcpClient('docs')],
+    )
+    expect(
+      analyzeCodexFunctionToolVisibility(
+        disconnectedRuntime.tools,
+        disconnectedRuntime,
+        {
+          discoveredToolNames,
+          discoveredToolSignatures,
+        },
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'mcp__docs__search',
+        selected: false,
+        recovered: false,
+        reason: 'stale-discovery',
+      }),
+    )
+
+    const reconnectedRuntime = createFakeRuntime(
+      [ToolSearchTool, bridgedMcpTool],
+      [createConnectedMcpClient('docs')],
+    )
+    expect(
+      analyzeCodexFunctionToolVisibility(
+        reconnectedRuntime.tools,
+        reconnectedRuntime,
+        {
+          discoveredToolNames,
+          discoveredToolSignatures,
+        },
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        name: 'mcp__docs__search',
+        selected: true,
+        recovered: true,
+        reason: 'discovered-match',
+      }),
+    )
   })
 })
 

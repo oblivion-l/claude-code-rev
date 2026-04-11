@@ -822,6 +822,9 @@ function formatCodexReplFunctionToolLine(args: {
   const flags = [
     isDeferredTool(args.visibility.tool) ? 'deferred' : null,
     args.visibility.discovered ? 'discovered' : null,
+    args.visibility.discovered && isDeferredTool(args.visibility.tool)
+      ? `recovered=${args.visibility.recovered ? 'true' : 'false'}`
+      : null,
     `decision=${args.visibility.selected ? 'selected' : 'hidden'}`,
     `selection-reason=${formatCodexReplToolDecisionReason(args.visibility.reason)}`,
   ].filter((value): value is string => value !== null)

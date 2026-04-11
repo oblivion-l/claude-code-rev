@@ -34,6 +34,7 @@ import {
   extractCodexFunctionCalls,
 } from './toolBridge.js'
 import {
+  buildCodexRequestTools,
   CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS,
   prepareCodexToolOrchestration,
   requireCodexFunctionToolExecutor,
@@ -277,7 +278,8 @@ export async function runHeadlessCodex({
   const sigintHandler = () => abortController.abort()
   process.on('SIGINT', sigintHandler)
   const {
-    requestTools,
+    requestPlan,
+    requestTools: initialRequestTools,
     functionToolExecutor,
   } = await prepareCodexToolOrchestration({
     mode: 'headless',
@@ -285,6 +287,7 @@ export async function runHeadlessCodex({
     model: config.model,
     abortController,
   })
+  const discoveredToolNames = new Set<string>()
 
   let accumulatedText = ''
   let usage: NonNullableUsage = EMPTY_USAGE
@@ -310,6 +313,15 @@ export async function runHeadlessCodex({
     let completedFinalRound = false
 
     for (let round = 0; round < CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS; round += 1) {
+      const requestTools =
+        round === 0
+          ? initialRequestTools
+          : await buildCodexRequestTools({
+              requestPlan,
+              runtime,
+              model: config.model,
+              discoveredToolNames,
+            })
       const response = await createCodexResponseStream({
         config,
         input: currentInput,
@@ -368,10 +380,14 @@ export async function runHeadlessCodex({
 
       const functionCalls = extractCodexFunctionCalls(completedResponse)
       if (functionCalls.length > 0) {
-        currentInput = await requireCodexFunctionToolExecutor({
+        const execution = await requireCodexFunctionToolExecutor({
           functionToolExecutor,
           mode: 'headless',
         }).execute(functionCalls)
+        currentInput = execution.outputs
+        for (const toolName of execution.selectedToolNames) {
+          discoveredToolNames.add(toolName)
+        }
         continue
       }
 

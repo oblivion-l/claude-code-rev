@@ -22,6 +22,7 @@
 - headless `--resume --resume-session-at <assistant-message-uuid>`
 - headless `--print` 下最小本地开发工具闭环
 - 已连接 MCP server 的本地 bridge 工具闭环
+- Codex 路径下最小 ToolSearch deferred tool 加载
 - Codex REPL 文本多轮
 - Codex REPL 下最小本地开发工具闭环
 - Codex REPL 的同进程 `--continue`
@@ -65,6 +66,13 @@
 - 继续复用仓库现有工具 schema、权限检查和工具执行逻辑
 - 不接 REPL slash command 工具流，不开放 Agent 工具编排
 - 与远程 MCP 透传保持并列关系，不合并成新的 orchestration 协议
+
+当前 Codex ToolSearch 支持以下最小范围：
+
+- 仅覆盖 Codex provider 自己暴露的本地 function tools
+- 当 ToolSearch 可用时，bridge MCP 这类 deferred tools 会先隐藏，待模型通过 `ToolSearch` 选择后在下一轮请求中加载
+- 当前不依赖 Anthropic 的 `tool_reference` 扩展，而是在 Codex 本地执行层里重建下一轮工具列表
+- 如果当前上下文没有 ToolSearchTool，则保持旧行为，直接暴露这些工具，不做额外隐藏
 
 当前 Codex MCP 的执行方式分为两类：
 

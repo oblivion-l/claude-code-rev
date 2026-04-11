@@ -4,6 +4,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
+import type { MCPServerConnection } from 'src/services/mcp/types.js'
+import { ToolSearchTool } from 'src/tools/ToolSearchTool/ToolSearchTool.js'
 import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js'
 import {
   createCodexReplSession,
@@ -20,6 +22,7 @@ const originalEnv = {
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
   CODEX_MODEL: process.env.CODEX_MODEL,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
+  ENABLE_TOOL_SEARCH: process.env.ENABLE_TOOL_SEARCH,
 }
 
 const originalFetch = globalThis.fetch
@@ -38,7 +41,10 @@ function buildSseResponse(events: unknown[]): Response {
   })
 }
 
-function createFakeTool(name: string): Tool {
+function createFakeTool(
+  name: string,
+  overrides?: Partial<Tool>,
+): Tool {
   return {
     name,
     inputSchema: z.object({
@@ -101,11 +107,13 @@ function createFakeTool(name: string): Tool {
       return null
     },
     maxResultSizeChars: 1000,
+    ...overrides,
   } as unknown as Tool
 }
 
 function createFakeRuntime(
   tools: Tool[],
+  mcpClients: MCPServerConnection[] = [],
 ): CodexToolRuntime {
   let appState: any = {
     toolPermissionContext: getEmptyToolPermissionContext(),
@@ -118,7 +126,7 @@ function createFakeRuntime(
     cwd: '/tmp/project',
     commands: [],
     tools,
-    mcpClients: [],
+    mcpClients,
     agents: [],
     canUseTool: async () => ({
       behavior: 'allow',
@@ -131,6 +139,23 @@ function createFakeRuntime(
     getAppState: () => appState,
     setAppState: updater => {
       appState = updater(appState)
+    },
+  }
+}
+
+function createConnectedMcpClient(name: string): MCPServerConnection {
+  return {
+    name,
+    type: 'connected',
+    capabilities: {
+      tools: {},
+    },
+    client: {} as never,
+    cleanup: async () => {},
+    config: {
+      command: 'node',
+      args: ['server.js'],
+      scope: 'user',
     },
   }
 }
@@ -411,6 +436,135 @@ describe('createCodexReplSession', () => {
     expect(result.responseId).toBe('resp_final')
     expect(result.usage.input_tokens).toBe(11)
     expect(result.usage.output_tokens).toBe(5)
+  })
+
+  it('loads deferred bridged MCP tools after ToolSearch selection', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    resetHooksConfigSnapshot()
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+      async description() {
+        return 'docs search description'
+      },
+      async prompt() {
+        return 'docs search prompt'
+      },
+    })
+
+    const requestBodies: Record<string, unknown>[] = []
+    let requestCount = 0
+
+    globalThis.fetch = async (_url, init) => {
+      const requestBody = JSON.parse(String(init?.body))
+      requestBodies.push(requestBody)
+      requestCount += 1
+
+      if (requestCount === 1) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_search',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'ToolSearch',
+                  call_id: 'call_tool_search',
+                  arguments: '{"query":"select:mcp__docs__search"}',
+                },
+              ],
+              usage: {
+                input_tokens: 5,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      if (requestCount === 2) {
+        return buildSseResponse([
+          {
+            type: 'response.completed',
+            response: {
+              id: 'resp_mcp_tool',
+              output: [
+                {
+                  type: 'function_call',
+                  name: 'mcp__docs__search',
+                  call_id: 'call_docs_search',
+                  arguments: '{"query":"bun install"}',
+                },
+              ],
+              usage: {
+                input_tokens: 6,
+                output_tokens: 2,
+              },
+            },
+          },
+        ])
+      }
+
+      return buildSseResponse([
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_final',
+            output_text: 'Search complete',
+            usage: {
+              input_tokens: 4,
+              output_tokens: 2,
+            },
+          },
+        },
+      ])
+    }
+
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [createConnectedMcpClient('docs')],
+      ),
+    })
+
+    const { result } = await collectTurn(session, 'find docs tool')
+
+    expect(requestBodies).toHaveLength(3)
+    expect(requestBodies[0]?.tools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'ToolSearch',
+      }),
+    ])
+    expect(requestBodies[1]?.tools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'ToolSearch',
+      }),
+      expect.objectContaining({
+        type: 'function',
+        name: 'mcp__docs__search',
+      }),
+    ])
+    expect(requestBodies[2]?.input).toEqual([
+      {
+        type: 'function_call_output',
+        call_id: 'call_docs_search',
+        output: '{"ok":"bun install"}',
+      },
+    ])
+    expect(result.responseText).toBe('Search complete')
+    expect(result.responseId).toBe('resp_final')
   })
 
   it('starts from persisted state when a previous response id is provided', async () => {

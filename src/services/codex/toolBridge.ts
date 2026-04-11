@@ -19,6 +19,8 @@ import { FILE_WRITE_TOOL_NAME } from 'src/tools/FileWriteTool/prompt.js'
 import { GLOB_TOOL_NAME } from 'src/tools/GlobTool/prompt.js'
 import { GREP_TOOL_NAME } from 'src/tools/GrepTool/prompt.js'
 import { POWERSHELL_TOOL_NAME } from 'src/tools/PowerShellTool/toolName.js'
+import { TOOL_SEARCH_TOOL_NAME } from 'src/tools/ToolSearchTool/constants.js'
+import { isDeferredTool } from 'src/tools/ToolSearchTool/prompt.js'
 import { isCodexMcpConfigHandledByLocalBridge } from './mcp.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 import type {
@@ -58,11 +60,16 @@ function isCodexLocalBridgeMcpTool(
   return isCodexMcpConfigHandledByLocalBridge(client.config)
 }
 
+function isCodexToolSearchTool(tool: Tool): boolean {
+  return tool.name === TOOL_SEARCH_TOOL_NAME
+}
+
 function isCodexFunctionToolEligible(
   tool: Tool,
   runtime?: CodexToolRuntime,
 ): boolean {
   if (
+    !isCodexToolSearchTool(tool) &&
     !isCodexLocalBridgeMcpTool(tool, runtime) &&
     !CODEX_LOCAL_TOOL_ALLOWLIST.has(tool.name)
   ) {
@@ -83,8 +90,36 @@ function isCodexFunctionToolEligible(
 export function selectCodexFunctionTools(
   tools: Tools,
   runtime?: CodexToolRuntime,
+  options?: {
+    discoveredToolNames?: Set<string>
+  },
 ): Tools {
-  return tools.filter(tool => isCodexFunctionToolEligible(tool, runtime))
+  const eligibleTools = tools.filter(tool =>
+    isCodexFunctionToolEligible(tool, runtime),
+  )
+  const discoveredToolNames = options?.discoveredToolNames ?? new Set<string>()
+  const hasToolSearch = eligibleTools.some(isCodexToolSearchTool)
+  const deferredTools = eligibleTools.filter(
+    tool =>
+      !isCodexToolSearchTool(tool) &&
+      isDeferredTool(tool),
+  )
+
+  return eligibleTools.filter(tool => {
+    if (isCodexToolSearchTool(tool)) {
+      return deferredTools.length > 0
+    }
+
+    if (!hasToolSearch) {
+      return true
+    }
+
+    if (!isDeferredTool(tool)) {
+      return true
+    }
+
+    return discoveredToolNames.has(tool.name)
+  })
 }
 
 export async function mapCodexFunctionTools(args: {
@@ -92,10 +127,8 @@ export async function mapCodexFunctionTools(args: {
   runtime: CodexToolRuntime
   model: string
 }): Promise<CodexFunctionTool[]> {
-  const eligibleTools = selectCodexFunctionTools(args.tools, args.runtime)
-
   return Promise.all(
-    eligibleTools.map(async tool => {
+    args.tools.map(async tool => {
       const apiSchema = await toolToAPISchema(tool, {
         getToolPermissionContext: async () =>
           args.runtime.getAppState().toolPermissionContext,
@@ -162,7 +195,30 @@ export function extractCodexFunctionCalls(
 }
 
 export type CodexFunctionToolExecutor = {
-  execute(functionCalls: CodexFunctionCall[]): Promise<CodexFunctionCallOutput[]>
+  execute(functionCalls: CodexFunctionCall[]): Promise<{
+    outputs: CodexFunctionCallOutput[]
+    selectedToolNames: string[]
+  }>
+}
+
+function parseSelectedToolNamesFromOutput(outputText: string): string[] {
+  try {
+    const parsed = JSON.parse(outputText)
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'matches' in parsed &&
+      Array.isArray(parsed.matches)
+    ) {
+      return parsed.matches.filter(
+        (match): match is string => typeof match === 'string',
+      )
+    }
+  } catch {
+    // Ignore non-JSON tool outputs.
+  }
+
+  return []
 }
 
 function buildHeadlessToolUseContext(args: {
@@ -322,12 +378,15 @@ export async function executeCodexFunctionCalls(args: {
   functionCalls: CodexFunctionCall[]
   model: string
   abortController: AbortController
-}): Promise<CodexFunctionCallOutput[]> {
+}): Promise<{
+  outputs: CodexFunctionCallOutput[]
+  selectedToolNames: string[]
+}> {
   const messages: Message[] = []
   const toolUseContext = buildHeadlessToolUseContext({
     runtime: args.runtime,
     model: args.model,
-    tools: args.tools,
+    tools: args.runtime.tools,
     messages,
     abortController: args.abortController,
   })
@@ -345,8 +404,12 @@ async function executeCodexFunctionCallsWithContext(args: {
   messages: Message[]
   toolUseContext: ToolUseContext
   canUseTool: CodexToolRuntime['canUseTool']
-}): Promise<CodexFunctionCallOutput[]> {
+}): Promise<{
+  outputs: CodexFunctionCallOutput[]
+  selectedToolNames: string[]
+}> {
   const outputs: CodexFunctionCallOutput[] = []
+  const selectedToolNames = new Set<string>()
 
   for (const call of args.functionCalls) {
     let parsedInput: Record<string, unknown>
@@ -388,9 +451,18 @@ async function executeCodexFunctionCallsWithContext(args: {
       call_id: call.callId,
       output: outputText,
     })
+
+    if (call.name === TOOL_SEARCH_TOOL_NAME) {
+      for (const toolName of parseSelectedToolNamesFromOutput(outputText)) {
+        selectedToolNames.add(toolName)
+      }
+    }
   }
 
-  return outputs
+  return {
+    outputs,
+    selectedToolNames: [...selectedToolNames],
+  }
 }
 
 export function createCodexFunctionToolExecutor(args: {

@@ -13,6 +13,7 @@ import { EMPTY_USAGE } from 'src/services/api/logging.js'
 import type { NonNullableUsage } from 'src/entrypoints/sdk/sdkUtilityTypes.js'
 import { extractCodexFunctionCalls } from './toolBridge.js'
 import {
+  buildCodexRequestTools,
   CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS,
   prepareCodexToolOrchestration,
   requireCodexFunctionToolExecutor,
@@ -360,16 +361,15 @@ export class CodexReplSession {
     }
 
     const { abortController, cleanup } = createForwardingAbortController(signal)
-    const {
-      requestTools,
-      functionToolExecutor,
-    } = await prepareCodexToolOrchestration({
+    const discoveredToolNames = new Set<string>()
+    const orchestration = await prepareCodexToolOrchestration({
       mode: 'repl',
       runtime: this.options.runtime,
       mcpTools: this.options.mcpTools,
       model: this.config.model,
       abortController,
     })
+    const { requestPlan, functionToolExecutor } = orchestration
 
     let accumulatedText = ''
     let responseId: string | undefined
@@ -388,6 +388,16 @@ export class CodexReplSession {
         round < CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS;
         round += 1
       ) {
+        const requestTools =
+          round === 0
+            ? orchestration.requestTools
+            : await buildCodexRequestTools({
+                requestPlan,
+                runtime: this.options.runtime,
+                mcpTools: this.options.mcpTools,
+                model: this.config.model,
+                discoveredToolNames,
+              })
         const response = await createCodexResponseStream({
           config: this.config,
           input: currentInput,
@@ -443,10 +453,14 @@ export class CodexReplSession {
 
         const functionCalls = extractCodexFunctionCalls(completedResponse)
         if (functionCalls.length > 0) {
-          currentInput = await requireCodexFunctionToolExecutor({
+          const execution = await requireCodexFunctionToolExecutor({
             functionToolExecutor,
             mode: 'repl',
           }).execute(functionCalls)
+          currentInput = execution.outputs
+          for (const toolName of execution.selectedToolNames) {
+            discoveredToolNames.add(toolName)
+          }
           continue
         }
 

@@ -49,6 +49,36 @@ export function buildMissingCodexLocalToolRuntimeMessage(
     : 'Codex provider received a function tool call, but no local tool runtime is available.'
 }
 
+export async function buildCodexRequestTools(args: {
+  requestPlan: CodexToolingRequestPlan
+  runtime?: CodexToolRuntime
+  mcpTools?: CodexMcpTool[]
+  model: string
+  discoveredToolNames?: Set<string>
+}): Promise<CodexRequestTool[]> {
+  const functionEnabledTools =
+    args.requestPlan.enabled.localFunctionTools && args.runtime
+      ? selectCodexFunctionTools(args.runtime.tools, args.runtime, {
+          discoveredToolNames: args.discoveredToolNames,
+        })
+      : []
+  const functionTools =
+    args.runtime && functionEnabledTools.length > 0
+      ? await mapCodexFunctionTools({
+          tools: functionEnabledTools,
+          runtime: args.runtime,
+          model: args.model,
+        })
+      : []
+
+  return [
+    ...(args.requestPlan.enabled.remoteMcpTools
+      ? (args.mcpTools ?? [])
+      : []),
+    ...functionTools,
+  ]
+}
+
 export function requireCodexFunctionToolExecutor(args: {
   functionToolExecutor: CodexFunctionToolExecutor | null
   mode: CodexToolingMode
@@ -66,6 +96,7 @@ export async function prepareCodexToolOrchestration(args: {
   runtime?: CodexToolRuntime
   mcpTools?: CodexMcpTool[]
   abortController: AbortController
+  discoveredToolNames?: Set<string>
 }): Promise<CodexToolOrchestration> {
   const requestPlan = resolveCodexToolingRequestPlan({
     mode: args.mode,
@@ -73,35 +104,22 @@ export async function prepareCodexToolOrchestration(args: {
     runtime: args.runtime,
     mcpTools: args.mcpTools,
   })
-
-  const functionEnabledTools =
-    requestPlan.enabled.localFunctionTools && args.runtime
-    ? selectCodexFunctionTools(args.runtime.tools, args.runtime)
-    : []
-  const functionTools =
-    args.runtime && functionEnabledTools.length > 0
-      ? await mapCodexFunctionTools({
-          tools: functionEnabledTools,
-          runtime: args.runtime,
-          model: args.model,
-        })
-      : []
-
-  const requestTools = [
-    ...(requestPlan.enabled.remoteMcpTools
-      ? (args.mcpTools ?? [])
-      : []),
-    ...functionTools,
-  ]
+  const requestTools = await buildCodexRequestTools({
+    requestPlan,
+    runtime: args.runtime,
+    mcpTools: args.mcpTools,
+    model: args.model,
+    discoveredToolNames: args.discoveredToolNames,
+  })
 
   return {
     requestPlan,
     requestTools,
     functionToolExecutor:
-      args.runtime && functionEnabledTools.length > 0
+      args.runtime && requestPlan.enabled.localFunctionTools
         ? createCodexFunctionToolExecutor({
             runtime: args.runtime,
-            tools: functionEnabledTools,
+            tools: args.runtime.tools,
             model: args.model,
             abortController: args.abortController,
           })

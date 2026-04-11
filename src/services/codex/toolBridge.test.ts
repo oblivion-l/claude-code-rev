@@ -5,6 +5,7 @@ import { join } from 'path'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
 import type { MCPServerConnection } from 'src/services/mcp/types.js'
+import { ToolSearchTool } from 'src/tools/ToolSearchTool/ToolSearchTool.js'
 import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js'
 import {
   executeCodexFunctionCalls,
@@ -16,6 +17,7 @@ import type { CodexToolRuntime } from './toolRuntime.js'
 
 const originalConfigDirEnv = process.env.CLAUDE_CONFIG_DIR
 const originalSimpleEnv = process.env.CLAUDE_CODE_SIMPLE
+const originalToolSearchEnv = process.env.ENABLE_TOOL_SEARCH
 let configDir: string
 
 beforeEach(() => {
@@ -38,6 +40,12 @@ afterEach(() => {
     delete process.env.CLAUDE_CODE_SIMPLE
   } else {
     process.env.CLAUDE_CODE_SIMPLE = originalSimpleEnv
+  }
+
+  if (originalToolSearchEnv === undefined) {
+    delete process.env.ENABLE_TOOL_SEARCH
+  } else {
+    process.env.ENABLE_TOOL_SEARCH = originalToolSearchEnv
   }
 
   if (configDir) {
@@ -207,6 +215,32 @@ describe('selectCodexFunctionTools', () => {
 
     expect(selected).toEqual([bridgedMcpTool])
   })
+
+  it('keeps ToolSearch available and loads deferred MCP tools only after discovery', () => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const runtime = createFakeRuntime(
+      [ToolSearchTool, bridgedMcpTool],
+      [createConnectedMcpClient('docs')],
+    )
+
+    expect(
+      selectCodexFunctionTools(runtime.tools, runtime),
+    ).toEqual([ToolSearchTool])
+
+    expect(
+      selectCodexFunctionTools(runtime.tools, runtime, {
+        discoveredToolNames: new Set(['mcp__docs__search']),
+      }),
+    ).toEqual([ToolSearchTool, bridgedMcpTool])
+  })
 })
 
 describe('mapCodexFunctionTools', () => {
@@ -291,7 +325,7 @@ describe('executeCodexFunctionCalls', () => {
     const readTool = createFakeTool('Read')
     const runtime = createFakeRuntime([readTool])
 
-    const outputs = await executeCodexFunctionCalls({
+    const execution = await executeCodexFunctionCalls({
       runtime,
       tools: [readTool],
       functionCalls: [
@@ -305,20 +339,21 @@ describe('executeCodexFunctionCalls', () => {
       abortController: new AbortController(),
     })
 
-    expect(outputs).toEqual([
+    expect(execution.outputs).toEqual([
       {
         type: 'function_call_output',
         call_id: 'call_1',
         output: '{"ok":"src/index.ts"}',
       },
     ])
+    expect(execution.selectedToolNames).toEqual([])
   })
 
   it('returns a readable error output for invalid JSON arguments', async () => {
     const readTool = createFakeTool('Read')
     const runtime = createFakeRuntime([readTool])
 
-    const outputs = await executeCodexFunctionCalls({
+    const execution = await executeCodexFunctionCalls({
       runtime,
       tools: [readTool],
       functionCalls: [
@@ -332,14 +367,47 @@ describe('executeCodexFunctionCalls', () => {
       abortController: new AbortController(),
     })
 
-    expect(outputs[0]).toEqual(
+    expect(execution.outputs[0]).toEqual(
       expect.objectContaining({
         type: 'function_call_output',
         call_id: 'call_invalid',
       }),
     )
-    expect(outputs[0]?.output).toContain(
+    expect(execution.outputs[0]?.output).toContain(
       'Codex tool call Read returned invalid JSON arguments',
     )
+  })
+
+  it('tracks selected tool names from ToolSearch outputs', async () => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    const deferredRead = createFakeTool('Read', {
+      shouldDefer: true,
+    })
+    const deferredEdit = createFakeTool('Edit', {
+      shouldDefer: true,
+    })
+    const runtime = createFakeRuntime([ToolSearchTool, deferredRead, deferredEdit])
+
+    const execution = await executeCodexFunctionCalls({
+      runtime,
+      tools: [ToolSearchTool],
+      functionCalls: [
+        {
+          name: 'ToolSearch',
+          callId: 'call_search',
+          argumentsText: '{"query":"select:Read,Edit"}',
+        },
+      ],
+      model: 'gpt-5-codex',
+      abortController: new AbortController(),
+    })
+
+    expect(execution.outputs[0]).toEqual(
+      expect.objectContaining({
+        type: 'function_call_output',
+        call_id: 'call_search',
+      }),
+    )
+    expect(execution.selectedToolNames).toEqual(['Read', 'Edit'])
   })
 })

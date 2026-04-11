@@ -75,6 +75,9 @@
 - 当前不依赖 Anthropic 的 `tool_reference` 扩展，而是在 Codex 本地执行层里重建下一轮工具列表
 - 如果当前上下文没有 ToolSearchTool，则保持旧行为，直接暴露这些工具，不做额外隐藏
 - 已通过 ToolSearch 发现过的工具名会写入 Codex conversation state，因此 REPL 多轮以及 headless `--continue` / `--resume` 会继续记住这些已发现工具
+- deferred tool 去重采用稳定策略：先比较当前是否可见，再比较来源优先级；当前来源优先级为 `local > mcp-bridge > remote-mcp > tool-search`
+- 当同名工具已发现但当前来源签名变化时，会判定为 `stale-discovery` 并重新隐藏，等待下一次重新发现
+- 断连、重连或配置变更不会主动清空已发现工具记录；错误场景下仍会保留已发现状态，后续按当前来源重新判定是否继续暴露
 
 当前 Codex MCP 的执行方式分为两类：
 
@@ -289,6 +292,7 @@ bun run dev
   - 查看当前实际使用的模型与 API base URL。
 - `/tools`
   - 查看当前暴露给 Codex 的本地 function tools、bridge MCP 工具可见性、远程 MCP passthrough，以及 MCP bridge 连接状态。
+  - 每个 function tool 都会显示 `decision=` 与 `selection-reason=`，用于解释它为何被选中或隐藏。
   - MCP bridge tool 会联动显示所属 `server`、当前 `status`、来源与端点信息，便于定位是 ToolSearch 未发现、bridge 未连通，还是 server 鉴权/配置异常。
 - `/exit`
   - 退出当前 Codex REPL。
@@ -352,6 +356,16 @@ codex> /exit
   - `[tool-search]`：ToolSearch 本身
   - `[mcp-bridge]`：通过本地 MCP client bridge 暴露给 Codex 的工具
   - `[remote-mcp]`：直接透传给 Codex API 的远程 MCP server
+- 同名工具按稳定顺序去重：先看当前是否可见，再按 `local > mcp-bridge > remote-mcp > tool-search` 取优先级更高者
+- `decision=selected|hidden` 表示该工具当前是否进入本轮 Codex 请求
+- `selection-reason=` 当前可能出现：
+  - `always-visible`
+  - `discovered-match`
+  - `discovered-legacy`
+  - `awaiting-tool-search`
+  - `stale-discovery`
+  - `duplicate-lower-priority`
+  - `tool-search-for-deferred`
 - deferred tools 是否仍隐藏，等待 ToolSearch 选择后再暴露
 - 若 deferred tool 来自 MCP bridge，会显示其所属 server、当前状态、来源和端点信息
 - 本地 MCP bridge server 的连接状态和失败原因

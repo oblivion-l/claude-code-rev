@@ -574,11 +574,11 @@ describe('createCodexReplSession', () => {
     expect(requestBodies[1]?.tools).toEqual([
       expect.objectContaining({
         type: 'function',
-        name: 'ToolSearch',
+        name: 'mcp__docs__search',
       }),
       expect.objectContaining({
         type: 'function',
-        name: 'mcp__docs__search',
+        name: 'ToolSearch',
       }),
     ])
     expect(requestBodies[2]?.input).toEqual([
@@ -689,11 +689,11 @@ describe('createCodexReplSession', () => {
     expect(requestBodies[2]?.tools).toEqual([
       expect.objectContaining({
         type: 'function',
-        name: 'ToolSearch',
+        name: 'mcp__docs__search',
       }),
       expect.objectContaining({
         type: 'function',
-        name: 'mcp__docs__search',
+        name: 'ToolSearch',
       }),
     ])
     expect(secondTurn.result.responseText).toBe('Second turn ready')
@@ -894,11 +894,11 @@ describe('createCodexReplSession', () => {
       expect(requestBody.tools).toEqual([
         expect.objectContaining({
           type: 'function',
-          name: 'ToolSearch',
+          name: 'mcp__docs__search',
         }),
         expect.objectContaining({
           type: 'function',
-          name: 'mcp__docs__search',
+          name: 'ToolSearch',
         }),
       ])
 
@@ -1138,7 +1138,7 @@ describe('createCodexReplSession', () => {
       '- github [failed] transport=http scope=project plugin=github@acme endpoint=https://example.com/github-mcp reason=auth expired',
     )
     expect(lines).toContain(
-      '- remote-docs [remote-mcp] url=https://example.com/remote-mcp',
+      '- remote-docs [remote-mcp] decision=selected, selection-reason=passthrough url=https://example.com/remote-mcp',
     )
   })
 
@@ -1199,19 +1199,84 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Function tools exposed: 2')
-    expect(lines).toContain('- Read [local]')
-    expect(lines).toContain('- ToolSearch [tool-search]')
     expect(lines).toContain(
-      'Deferred tools hidden until ToolSearch selects them: 1',
+      '- Read [local] decision=selected, selection-reason=always-visible',
     )
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] deferred server=docs tool=search status=connected transport=stdio scope=project plugin=docs@acme command=node docs-server.js capabilities=resources,tools',
+      '- ToolSearch [tool-search] decision=selected, selection-reason=tool-search-for-deferred',
     )
     expect(lines).toContain(
-      '- remote-docs [remote-mcp] url=https://example.com/remote-mcp',
+      'Deferred/hidden tools: 1',
+    )
+    expect(lines).toContain(
+      '- mcp__docs__search [mcp-bridge] deferred, decision=hidden, selection-reason=awaiting-tool-search server=docs tool=search status=connected transport=stdio scope=project plugin=docs@acme command=node docs-server.js capabilities=resources,tools',
+    )
+    expect(lines).toContain(
+      '- remote-docs [remote-mcp] decision=selected, selection-reason=passthrough url=https://example.com/remote-mcp',
     )
     expect(lines).toContain(
       'MCP bridge servers: 1 total (1 connected, 0 pending, 0 failed, 0 needs-auth, 0 disabled)',
+    )
+  })
+
+  it('shows stale discovery reasons in /tools when a deferred source signature changes', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    resetHooksConfigSnapshot()
+
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime(
+        [ToolSearchTool, bridgedMcpTool],
+        [
+          createConnectedMcpClient('docs', {
+            config: {
+              command: 'node',
+              args: ['changed-docs-server.js'],
+              scope: 'project',
+            },
+          }),
+        ],
+      ),
+      conversationState: {
+        providerId: 'codex-repl',
+        stateId: 'stale_tools_state',
+        conversationId: 'stale_tools_state',
+        metadata: {
+          codexDiscoveredToolNames: ['mcp__docs__search'],
+          codexDiscoveredToolSignatures: {
+            mcp__docs__search:
+              'mcp-bridge:mcp__docs__search:docs:stdio:project::node:original-docs-server.js',
+          },
+        },
+      },
+    })
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/tools',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toContain('Function tools exposed: 1')
+    expect(lines).toContain(
+      '- ToolSearch [tool-search] decision=selected, selection-reason=tool-search-for-deferred',
+    )
+    expect(lines).toContain(
+      '- mcp__docs__search [mcp-bridge] deferred, discovered, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools',
     )
   })
 

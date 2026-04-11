@@ -1,10 +1,11 @@
 import {
+  analyzeCodexFunctionToolVisibility,
   createCodexFunctionToolExecutor,
   mapCodexFunctionTools,
-  selectCodexFunctionTools,
   type CodexFunctionToolExecutor,
 } from './toolBridge.js'
 import type { CodexToolingMode } from './capabilities.js'
+import { TOOL_SEARCH_TOOL_NAME } from 'src/tools/ToolSearchTool/constants.js'
 import {
   resolveCodexToolingRequestPlan,
   type CodexToolingRequestPlan,
@@ -55,12 +56,16 @@ export async function buildCodexRequestTools(args: {
   mcpTools?: CodexMcpTool[]
   model: string
   discoveredToolNames?: Set<string>
+  discoveredToolSignatures?: Map<string, string>
 }): Promise<CodexRequestTool[]> {
   const functionEnabledTools =
     args.requestPlan.enabled.localFunctionTools && args.runtime
-      ? selectCodexFunctionTools(args.runtime.tools, args.runtime, {
+      ? analyzeCodexFunctionToolVisibility(args.runtime.tools, args.runtime, {
           discoveredToolNames: args.discoveredToolNames,
+          discoveredToolSignatures: args.discoveredToolSignatures,
         })
+          .filter(visibility => visibility.selected)
+          .map(visibility => visibility.tool)
       : []
   const functionTools =
     args.runtime && functionEnabledTools.length > 0
@@ -71,11 +76,19 @@ export async function buildCodexRequestTools(args: {
         })
       : []
 
+  const nonToolSearchFunctionTools = functionTools.filter(
+    tool => tool.name !== TOOL_SEARCH_TOOL_NAME,
+  )
+  const toolSearchFunctionTools = functionTools.filter(
+    tool => tool.name === TOOL_SEARCH_TOOL_NAME,
+  )
+
   return [
+    ...nonToolSearchFunctionTools,
     ...(args.requestPlan.enabled.remoteMcpTools
       ? (args.mcpTools ?? [])
       : []),
-    ...functionTools,
+    ...toolSearchFunctionTools,
   ]
 }
 
@@ -97,6 +110,7 @@ export async function prepareCodexToolOrchestration(args: {
   mcpTools?: CodexMcpTool[]
   abortController: AbortController
   discoveredToolNames?: Set<string>
+  discoveredToolSignatures?: Map<string, string>
 }): Promise<CodexToolOrchestration> {
   const requestPlan = resolveCodexToolingRequestPlan({
     mode: args.mode,
@@ -110,6 +124,7 @@ export async function prepareCodexToolOrchestration(args: {
     mcpTools: args.mcpTools,
     model: args.model,
     discoveredToolNames: args.discoveredToolNames,
+    discoveredToolSignatures: args.discoveredToolSignatures,
   })
 
   return {

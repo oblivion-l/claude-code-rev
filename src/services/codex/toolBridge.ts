@@ -1,6 +1,7 @@
 import type { ToolUseBlock } from '@anthropic-ai/sdk/resources/index.mjs'
 import { randomUUID } from 'crypto'
 import { runToolUse } from 'src/services/tools/toolExecution.js'
+import type { MCPServerConnection } from 'src/services/mcp/types.js'
 import type { AssistantMessage, Message, UserMessage } from 'src/types/message.js'
 import type { Tool, ToolUseContext, Tools } from 'src/Tool.js'
 import { toolToAPISchema } from 'src/utils/api.js'
@@ -39,6 +40,34 @@ const CODEX_LOCAL_TOOL_ALLOWLIST = new Set([
   POWERSHELL_TOOL_NAME,
 ])
 
+const CODEX_FUNCTION_TOOL_SOURCE_PRIORITY = {
+  local: 400,
+  'mcp-bridge': 300,
+  'tool-search': 100,
+} as const
+
+export type CodexFunctionToolSource =
+  keyof typeof CODEX_FUNCTION_TOOL_SOURCE_PRIORITY
+
+export type CodexFunctionToolVisibility = {
+  tool: Tool
+  name: string
+  source: CodexFunctionToolSource
+  priority: number
+  deferred: boolean
+  discovered: boolean
+  selected: boolean
+  reason:
+    | 'always-visible'
+    | 'discovered-match'
+    | 'discovered-legacy'
+    | 'awaiting-tool-search'
+    | 'stale-discovery'
+    | 'duplicate-lower-priority'
+    | 'tool-search-for-deferred'
+  signature?: string
+}
+
 function isCodexLocalBridgeMcpTool(
   tool: Tool,
   runtime?: CodexToolRuntime,
@@ -64,19 +93,34 @@ function isCodexToolSearchTool(tool: Tool): boolean {
   return tool.name === TOOL_SEARCH_TOOL_NAME
 }
 
+function getCodexFunctionToolSource(
+  tool: Tool,
+  runtime?: CodexToolRuntime,
+): CodexFunctionToolSource | null {
+  if (isCodexToolSearchTool(tool)) {
+    return 'tool-search'
+  }
+
+  if (isCodexLocalBridgeMcpTool(tool, runtime)) {
+    return 'mcp-bridge'
+  }
+
+  if (CODEX_LOCAL_TOOL_ALLOWLIST.has(tool.name)) {
+    return 'local'
+  }
+
+  return null
+}
+
 function isCodexFunctionToolEligible(
   tool: Tool,
   runtime?: CodexToolRuntime,
 ): boolean {
-  if (
-    !isCodexToolSearchTool(tool) &&
-    !isCodexLocalBridgeMcpTool(tool, runtime) &&
-    !CODEX_LOCAL_TOOL_ALLOWLIST.has(tool.name)
-  ) {
+  if (!getCodexFunctionToolSource(tool, runtime)) {
     return false
   }
 
-  if (tool.shouldDefer || !tool.isEnabled()) {
+  if (!tool.isEnabled()) {
     return false
   }
 
@@ -87,39 +131,320 @@ function isCodexFunctionToolEligible(
   return true
 }
 
+function getConnectedCodexMcpClientForTool(
+  tool: Tool,
+  runtime?: CodexToolRuntime,
+): Extract<MCPServerConnection, { type: 'connected' }> | null {
+  if (!tool.isMcp || !tool.mcpInfo || !runtime) {
+    return null
+  }
+
+  const client = runtime.mcpClients.find(
+    candidate =>
+      candidate.type === 'connected' &&
+      candidate.name === tool.mcpInfo?.serverName,
+  )
+
+  return (client as Extract<MCPServerConnection, { type: 'connected' }>) ?? null
+}
+
+function getCodexFunctionToolSignature(
+  tool: Tool,
+  runtime?: CodexToolRuntime,
+): string | undefined {
+  const source = getCodexFunctionToolSource(tool, runtime)
+  if (!source) {
+    return undefined
+  }
+
+  if (source === 'local' || source === 'tool-search') {
+    return `${source}:${tool.name}`
+  }
+
+  const client = getConnectedCodexMcpClientForTool(tool, runtime)
+  if (!client) {
+    return undefined
+  }
+
+  const config = client.config
+  const transport = config.type ?? 'stdio'
+  if (transport === 'stdio' || transport === undefined) {
+    return [
+      source,
+      tool.name,
+      tool.mcpInfo?.serverName ?? 'unknown',
+      transport,
+      config.scope,
+      config.pluginSource ?? '',
+      config.command,
+      ...(config.args ?? []),
+    ].join(':')
+  }
+
+  return [
+    source,
+    tool.name,
+    tool.mcpInfo?.serverName ?? 'unknown',
+    transport,
+    config.scope,
+    config.pluginSource ?? '',
+    'url' in config ? config.url : '',
+    'id' in config ? config.id : '',
+    'name' in config ? config.name : '',
+  ].join(':')
+}
+
+function getCodexFunctionToolBaseVisibility(args: {
+  tool: Tool
+  runtime?: CodexToolRuntime
+  discoveredToolNames: Set<string>
+  discoveredToolSignatures: Map<string, string>
+}): Omit<CodexFunctionToolVisibility, 'selected' | 'reason'> & {
+  baseVisible: boolean
+  baseReason: CodexFunctionToolVisibility['reason']
+} | null {
+  const source = getCodexFunctionToolSource(args.tool, args.runtime)
+  if (!source || !isCodexFunctionToolEligible(args.tool, args.runtime)) {
+    return null
+  }
+
+  const deferred = isDeferredTool(args.tool)
+  const discovered = args.discoveredToolNames.has(args.tool.name)
+  const signature = getCodexFunctionToolSignature(args.tool, args.runtime)
+
+  if (source === 'tool-search') {
+    return {
+      tool: args.tool,
+      name: args.tool.name,
+      source,
+      priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
+      deferred,
+      discovered,
+      signature,
+      baseVisible: false,
+      baseReason: 'tool-search-for-deferred',
+    }
+  }
+
+  if (!deferred) {
+    return {
+      tool: args.tool,
+      name: args.tool.name,
+      source,
+      priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
+      deferred,
+      discovered,
+      signature,
+      baseVisible: true,
+      baseReason: 'always-visible',
+    }
+  }
+
+  if (!discovered) {
+    return {
+      tool: args.tool,
+      name: args.tool.name,
+      source,
+      priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
+      deferred,
+      discovered,
+      signature,
+      baseVisible: false,
+      baseReason: 'awaiting-tool-search',
+    }
+  }
+
+  const discoveredSignature = args.discoveredToolSignatures.get(args.tool.name)
+  if (
+    discoveredSignature &&
+    signature &&
+    discoveredSignature !== signature
+  ) {
+    return {
+      tool: args.tool,
+      name: args.tool.name,
+      source,
+      priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
+      deferred,
+      discovered,
+      signature,
+      baseVisible: false,
+      baseReason: 'stale-discovery',
+    }
+  }
+
+  return {
+    tool: args.tool,
+    name: args.tool.name,
+    source,
+    priority: CODEX_FUNCTION_TOOL_SOURCE_PRIORITY[source],
+    deferred,
+    discovered,
+    signature,
+    baseVisible: true,
+    baseReason: discoveredSignature
+      ? 'discovered-match'
+      : 'discovered-legacy',
+  }
+}
+
+export function getCodexDiscoveredToolSignatureMap(
+  tools: Tools,
+  runtime?: CodexToolRuntime,
+): Map<string, string> {
+  const signatures = new Map<string, string>()
+  const visibilities = analyzeCodexFunctionToolVisibility(tools, runtime, {
+    discoveredToolNames: new Set<string>(),
+    discoveredToolSignatures: new Map<string, string>(),
+  })
+
+  for (const visibility of visibilities) {
+    if (!visibility.signature || signatures.has(visibility.name)) {
+      continue
+    }
+
+    signatures.set(visibility.name, visibility.signature)
+  }
+
+  return signatures
+}
+
+export function analyzeCodexFunctionToolVisibility(
+  tools: Tools,
+  runtime?: CodexToolRuntime,
+  options?: {
+    discoveredToolNames?: Set<string>
+    discoveredToolSignatures?: Map<string, string>
+  },
+): CodexFunctionToolVisibility[] {
+  const discoveredToolNames = options?.discoveredToolNames ?? new Set<string>()
+  const discoveredToolSignatures =
+    options?.discoveredToolSignatures ?? new Map<string, string>()
+  const baseCandidates = tools
+    .map(tool =>
+      getCodexFunctionToolBaseVisibility({
+        tool,
+        runtime,
+        discoveredToolNames,
+        discoveredToolSignatures,
+      }),
+    )
+    .filter((value): value is NonNullable<typeof value> => value !== null)
+
+  const toolSearchCandidates = baseCandidates.filter(
+    candidate => candidate.source === 'tool-search',
+  )
+  const nonToolSearchCandidates = baseCandidates
+    .filter(candidate => candidate.source !== 'tool-search')
+    .map(candidate => {
+      if (
+        toolSearchCandidates.length === 0 &&
+        candidate.baseReason === 'awaiting-tool-search'
+      ) {
+        return {
+          ...candidate,
+          baseVisible: true,
+          baseReason: 'always-visible' as const,
+        }
+      }
+
+      return candidate
+    })
+  const groupedCandidates = new Map<string, typeof nonToolSearchCandidates>()
+  for (const candidate of nonToolSearchCandidates) {
+    const group = groupedCandidates.get(candidate.name) ?? []
+    group.push(candidate)
+    groupedCandidates.set(candidate.name, group)
+  }
+
+  const dedupedValues: CodexFunctionToolVisibility[] = []
+  for (const group of groupedCandidates.values()) {
+    const sortedGroup = [...group].sort((left, right) => {
+      const leftRank = left.baseVisible ? 1 : 0
+      const rightRank = right.baseVisible ? 1 : 0
+      if (leftRank !== rightRank) {
+        return rightRank - leftRank
+      }
+
+      if (left.priority !== right.priority) {
+        return right.priority - left.priority
+      }
+
+      return left.name.localeCompare(right.name)
+    })
+    const leader = sortedGroup[0]
+    if (!leader) {
+      continue
+    }
+
+    dedupedValues.push({
+      tool: leader.tool,
+      name: leader.name,
+      source: leader.source,
+      priority: leader.priority,
+      deferred: leader.deferred,
+      discovered: leader.discovered,
+      signature: leader.signature,
+      selected: leader.baseVisible,
+      reason: leader.baseReason,
+    })
+
+    for (const duplicate of sortedGroup.slice(1)) {
+      dedupedValues.push({
+        tool: duplicate.tool,
+        name: duplicate.name,
+        source: duplicate.source,
+        priority: duplicate.priority,
+        deferred: duplicate.deferred,
+        discovered: duplicate.discovered,
+        signature: duplicate.signature,
+        selected: false,
+        reason: 'duplicate-lower-priority',
+      })
+    }
+  }
+
+  const hasDeferredCandidates = dedupedValues.some(
+    candidate => candidate.deferred,
+  )
+  const toolSearchVisibilities = hasDeferredCandidates
+    ? toolSearchCandidates.map(candidate => ({
+        tool: candidate.tool,
+        name: candidate.name,
+        source: candidate.source,
+        priority: candidate.priority,
+        deferred: candidate.deferred,
+        discovered: candidate.discovered,
+        signature: candidate.signature,
+        selected: true,
+        reason: 'tool-search-for-deferred' as const,
+      }))
+    : []
+
+  return [...dedupedValues, ...toolSearchVisibilities].sort((left, right) => {
+    if (left.selected !== right.selected) {
+      return left.selected ? -1 : 1
+    }
+
+    if (left.priority !== right.priority) {
+      return right.priority - left.priority
+    }
+
+    return left.name.localeCompare(right.name)
+  })
+}
+
 export function selectCodexFunctionTools(
   tools: Tools,
   runtime?: CodexToolRuntime,
   options?: {
     discoveredToolNames?: Set<string>
+    discoveredToolSignatures?: Map<string, string>
   },
 ): Tools {
-  const eligibleTools = tools.filter(tool =>
-    isCodexFunctionToolEligible(tool, runtime),
-  )
-  const discoveredToolNames = options?.discoveredToolNames ?? new Set<string>()
-  const hasToolSearch = eligibleTools.some(isCodexToolSearchTool)
-  const deferredTools = eligibleTools.filter(
-    tool =>
-      !isCodexToolSearchTool(tool) &&
-      isDeferredTool(tool),
-  )
-
-  return eligibleTools.filter(tool => {
-    if (isCodexToolSearchTool(tool)) {
-      return deferredTools.length > 0
-    }
-
-    if (!hasToolSearch) {
-      return true
-    }
-
-    if (!isDeferredTool(tool)) {
-      return true
-    }
-
-    return discoveredToolNames.has(tool.name)
-  })
+  return analyzeCodexFunctionToolVisibility(tools, runtime, options)
+    .filter(visibility => visibility.selected)
+    .map(visibility => visibility.tool)
 }
 
 export async function mapCodexFunctionTools(args: {

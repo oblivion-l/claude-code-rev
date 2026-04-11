@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod/v4'
 import { getEmptyToolPermissionContext, type Tool } from 'src/Tool.js'
+import type { MCPServerConnection } from 'src/services/mcp/types.js'
+import { ToolSearchTool } from 'src/tools/ToolSearchTool/ToolSearchTool.js'
 import {
   buildMissingCodexLocalToolRuntimeMessage,
   prepareCodexToolOrchestration,
@@ -68,6 +70,7 @@ function createFakeTool(name: string): Tool {
 
 function createFakeRuntime(
   tools: Tool[],
+  mcpClients: MCPServerConnection[] = [],
 ): CodexToolRuntime {
   let appState: any = {
     toolPermissionContext: getEmptyToolPermissionContext(),
@@ -79,7 +82,7 @@ function createFakeRuntime(
     cwd: '/tmp/project',
     commands: [],
     tools,
-    mcpClients: [],
+    mcpClients,
     agents: [],
     canUseTool: async () => ({
       behavior: 'allow',
@@ -92,6 +95,23 @@ function createFakeRuntime(
     getAppState: () => appState,
     setAppState: updater => {
       appState = updater(appState)
+    },
+  }
+}
+
+function createConnectedMcpClient(name: string): MCPServerConnection {
+  return {
+    name,
+    type: 'connected',
+    capabilities: {
+      tools: {},
+    },
+    client: {} as never,
+    cleanup: async () => {},
+    config: {
+      command: 'node',
+      args: ['server.js'],
+      scope: 'user',
     },
   }
 }
@@ -115,15 +135,15 @@ describe('prepareCodexToolOrchestration', () => {
     })
 
     expect(orchestration.requestTools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'Read',
+      }),
       {
         type: 'mcp',
         server_label: 'docs',
         server_url: 'https://example.com/mcp',
       },
-      expect.objectContaining({
-        type: 'function',
-        name: 'Read',
-      }),
     ])
     expect(orchestration.functionToolExecutor).not.toBeNull()
     expect(orchestration.requestPlan.enabled).toEqual({
@@ -176,5 +196,58 @@ describe('prepareCodexToolOrchestration', () => {
         mode: 'repl',
       }),
     ).toThrow(buildMissingCodexLocalToolRuntimeMessage('repl'))
+  })
+
+  it('orders local and bridged function tools ahead of remote MCP and tool-search', async () => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    const bridgedMcpTool = createFakeTool('mcp__docs__search') as Tool & {
+      isMcp?: boolean
+      mcpInfo?: { serverName: string; toolName: string }
+    }
+    bridgedMcpTool.isMcp = true
+    bridgedMcpTool.mcpInfo = {
+      serverName: 'docs',
+      toolName: 'search',
+    }
+
+    const runtime = createFakeRuntime(
+      [createFakeTool('Read'), ToolSearchTool, bridgedMcpTool],
+      [createConnectedMcpClient('docs')],
+    )
+
+    const orchestration = await prepareCodexToolOrchestration({
+      mode: 'repl',
+      runtime,
+      model: 'gpt-5-codex',
+      abortController: new AbortController(),
+      mcpTools: [
+        {
+          type: 'mcp',
+          server_label: 'docs-remote',
+          server_url: 'https://example.com/mcp',
+        },
+      ],
+      discoveredToolNames: new Set(['mcp__docs__search']),
+    })
+
+    expect(orchestration.requestTools).toEqual([
+      expect.objectContaining({
+        type: 'function',
+        name: 'Read',
+      }),
+      expect.objectContaining({
+        type: 'function',
+        name: 'mcp__docs__search',
+      }),
+      {
+        type: 'mcp',
+        server_label: 'docs-remote',
+        server_url: 'https://example.com/mcp',
+      },
+      expect.objectContaining({
+        type: 'function',
+        name: 'ToolSearch',
+      }),
+    ])
   })
 })

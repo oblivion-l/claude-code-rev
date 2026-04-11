@@ -16,8 +16,9 @@ import { TOOL_SEARCH_TOOL_NAME } from 'src/tools/ToolSearchTool/constants.js'
 import { isDeferredTool } from 'src/tools/ToolSearchTool/prompt.js'
 import type { NonNullableUsage } from 'src/entrypoints/sdk/sdkUtilityTypes.js'
 import {
+  analyzeCodexFunctionToolVisibility,
   extractCodexFunctionCalls,
-  selectCodexFunctionTools,
+  getCodexDiscoveredToolSignatureMap,
 } from './toolBridge.js'
 import {
   buildCodexRequestTools,
@@ -32,7 +33,7 @@ import {
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
 import {
-  getCodexDiscoveredToolNames,
+  getCodexDiscoveredToolState,
   withCodexDiscoveredToolNames,
 } from './discoveredTools.js'
 import { resolveCodexMcpTools } from './mcp.js'
@@ -462,7 +463,8 @@ function summarizeCodexReplRemoteMcpTools(mcpTools: CodexMcpTool[]): string[] {
   return [
     `Remote MCP passthrough: ${mcpTools.length} server(s)`,
     ...mcpTools.map(
-      tool => `- ${tool.server_label} [remote-mcp] url=${tool.server_url}`,
+      tool =>
+        `- ${tool.server_label} [remote-mcp] decision=selected, selection-reason=passthrough url=${tool.server_url}`,
     ),
   ]
 }
@@ -562,6 +564,27 @@ function formatCodexReplLastSavedAt(
   state: Pick<CodexReplConversationState, 'updatedAt'>,
 ): string {
   return state.updatedAt ?? 'not saved yet'
+}
+
+function formatCodexReplToolDecisionReason(reason: ReturnType<
+  typeof analyzeCodexFunctionToolVisibility
+>[number]['reason']): string {
+  switch (reason) {
+    case 'always-visible':
+      return 'always-visible'
+    case 'discovered-match':
+      return 'discovered-match'
+    case 'discovered-legacy':
+      return 'discovered-legacy'
+    case 'awaiting-tool-search':
+      return 'awaiting-tool-search'
+    case 'stale-discovery':
+      return 'stale-discovery'
+    case 'duplicate-lower-priority':
+      return 'duplicate-lower-priority'
+    case 'tool-search-for-deferred':
+      return 'tool-search-for-deferred'
+  }
 }
 
 function parsePositiveInteger(
@@ -787,30 +810,31 @@ function buildCodexReplSessionsView(args: {
 }
 
 function formatCodexReplFunctionToolLine(args: {
-  tool: NonNullable<CodexToolRuntime['tools']>[number]
+  visibility: ReturnType<typeof analyzeCodexFunctionToolVisibility>[number]
   runtime?: CodexToolRuntime
-  discoveredToolNames: Set<string>
 }): string {
   const source =
-    args.tool.name === TOOL_SEARCH_TOOL_NAME
+    args.visibility.tool.name === TOOL_SEARCH_TOOL_NAME
       ? 'tool-search'
-      : args.tool.isMcp
+      : args.visibility.tool.isMcp
         ? 'mcp-bridge'
         : 'local'
   const flags = [
-    isDeferredTool(args.tool) ? 'deferred' : null,
-    args.discoveredToolNames.has(args.tool.name) ? 'discovered' : null,
+    isDeferredTool(args.visibility.tool) ? 'deferred' : null,
+    args.visibility.discovered ? 'discovered' : null,
+    `decision=${args.visibility.selected ? 'selected' : 'hidden'}`,
+    `selection-reason=${formatCodexReplToolDecisionReason(args.visibility.reason)}`,
   ].filter((value): value is string => value !== null)
   const segments = flags.length > 0 ? [flags.join(', ')] : []
 
-  if (args.tool.isMcp) {
+  if (args.visibility.tool.isMcp) {
     const client = findCodexReplMcpClient({
       runtime: args.runtime,
-      serverName: args.tool.mcpInfo?.serverName,
+      serverName: args.visibility.tool.mcpInfo?.serverName,
     })
 
-    segments.push(`server=${args.tool.mcpInfo?.serverName ?? 'unknown'}`)
-    segments.push(`tool=${args.tool.mcpInfo?.toolName ?? args.tool.name}`)
+    segments.push(`server=${args.visibility.tool.mcpInfo?.serverName ?? 'unknown'}`)
+    segments.push(`tool=${args.visibility.tool.mcpInfo?.toolName ?? args.visibility.tool.name}`)
 
     if (client) {
       segments.push(`status=${client.type}`)
@@ -829,54 +853,48 @@ function formatCodexReplFunctionToolLine(args: {
     }
   }
 
-  return `- ${args.tool.name} [${source}]${segments.length > 0 ? ` ${segments.join(' ')}` : ''}`
+  return `- ${args.visibility.tool.name} [${source}]${segments.length > 0 ? ` ${segments.join(' ')}` : ''}`
 }
 
 function summarizeCodexReplFunctionTools(args: {
   runtime?: CodexToolRuntime
   discoveredToolNames: Set<string>
+  discoveredToolSignatures: Map<string, string>
 }): string[] {
   const tools = args.runtime?.tools ?? []
   if (tools.length === 0) {
     return ['Function tools exposed: none']
   }
 
-  const selectedTools = selectCodexFunctionTools(tools, args.runtime, {
+  const visibilities = analyzeCodexFunctionToolVisibility(tools, args.runtime, {
     discoveredToolNames: args.discoveredToolNames,
+    discoveredToolSignatures: args.discoveredToolSignatures,
   })
+  const selectedTools = visibilities.filter(visibility => visibility.selected)
   if (selectedTools.length === 0) {
     return ['Function tools exposed: none']
   }
 
   const lines = [`Function tools exposed: ${selectedTools.length}`]
-  for (const tool of [...selectedTools].sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )) {
+  for (const visibility of selectedTools) {
     lines.push(
       formatCodexReplFunctionToolLine({
-        tool,
+        visibility,
         runtime: args.runtime,
-        discoveredToolNames: args.discoveredToolNames,
       }),
     )
   }
 
-  const hiddenDeferredTools = tools
-    .filter(tool => isDeferredTool(tool))
-    .filter(
-      tool => !selectedTools.some(selectedTool => selectedTool.name === tool.name),
-    )
-    .sort((left, right) => left.name.localeCompare(right.name))
-  if (hiddenDeferredTools.length > 0) {
+  const hiddenTools = visibilities.filter(visibility => !visibility.selected)
+  if (hiddenTools.length > 0) {
     lines.push(
-      `Deferred tools hidden until ToolSearch selects them: ${hiddenDeferredTools.length}`,
+      `Deferred/hidden tools: ${hiddenTools.length}`,
     )
-    for (const tool of hiddenDeferredTools) {
+    for (const visibility of hiddenTools) {
       lines.push(
         formatCodexReplFunctionToolLine({
-          tool,
+          visibility,
           runtime: args.runtime,
-          discoveredToolNames: args.discoveredToolNames,
         }),
       )
     }
@@ -1193,6 +1211,7 @@ export class CodexReplSession {
   private readonly config: CodexRuntimeConfig
   private conversationState: CodexReplConversationState
   private readonly discoveredToolNames: Set<string>
+  private readonly discoveredToolSignatures: Map<string, string>
 
   constructor(
     private readonly options: {
@@ -1228,9 +1247,11 @@ export class CodexReplSession {
       },
       model: this.config.model,
     })
-    this.discoveredToolNames = getCodexDiscoveredToolNames(
+    const discoveredToolState = getCodexDiscoveredToolState(
       this.options.conversationState,
     )
+    this.discoveredToolNames = discoveredToolState.names
+    this.discoveredToolSignatures = discoveredToolState.signatures
   }
 
   get model(): string {
@@ -1272,8 +1293,13 @@ export class CodexReplSession {
       model: this.model,
     })
     this.discoveredToolNames.clear()
-    for (const toolName of getCodexDiscoveredToolNames(state)) {
+    this.discoveredToolSignatures.clear()
+    const discoveredToolState = getCodexDiscoveredToolState(state)
+    for (const toolName of discoveredToolState.names) {
       this.discoveredToolNames.add(toolName)
+    }
+    for (const [toolName, signature] of discoveredToolState.signatures) {
+      this.discoveredToolSignatures.set(toolName, signature)
     }
   }
 
@@ -1282,6 +1308,7 @@ export class CodexReplSession {
     const createdAt = new Date().toISOString()
 
     this.discoveredToolNames.clear()
+    this.discoveredToolSignatures.clear()
     this.conversationState = withCodexReplModelMetadata({
       state: {
         providerId: 'codex-repl',
@@ -1326,6 +1353,7 @@ export class CodexReplSession {
     const lines = summarizeCodexReplFunctionTools({
       runtime: this.options.runtime,
       discoveredToolNames: this.discoveredToolNames,
+      discoveredToolSignatures: this.discoveredToolSignatures,
     })
 
     return [
@@ -1351,6 +1379,7 @@ export class CodexReplSession {
       model: this.config.model,
       abortController,
       discoveredToolNames: this.discoveredToolNames,
+      discoveredToolSignatures: this.discoveredToolSignatures,
     })
     const { requestPlan, functionToolExecutor } = orchestration
 
@@ -1380,6 +1409,7 @@ export class CodexReplSession {
                 mcpTools: this.options.mcpTools,
                 model: this.config.model,
                 discoveredToolNames: this.discoveredToolNames,
+                discoveredToolSignatures: this.discoveredToolSignatures,
               })
         const response = await createCodexResponseStream({
           config: this.config,
@@ -1441,8 +1471,16 @@ export class CodexReplSession {
             mode: 'repl',
           }).execute(functionCalls)
           currentInput = execution.outputs
+          const currentSignatures = getCodexDiscoveredToolSignatureMap(
+            this.options.runtime?.tools ?? [],
+            this.options.runtime,
+          )
           for (const toolName of execution.selectedToolNames) {
             this.discoveredToolNames.add(toolName)
+            const signature = currentSignatures.get(toolName)
+            if (signature) {
+              this.discoveredToolSignatures.set(toolName, signature)
+            }
           }
           continue
         }
@@ -1456,6 +1494,7 @@ export class CodexReplSession {
       this.conversationState = withCodexDiscoveredToolNames({
         state: this.conversationState,
         discoveredToolNames: this.discoveredToolNames,
+        discoveredToolSignatures: this.discoveredToolSignatures,
       })
       throw error
     } finally {
@@ -1495,6 +1534,7 @@ export class CodexReplSession {
             : this.conversationState.history,
       },
       discoveredToolNames: this.discoveredToolNames,
+      discoveredToolSignatures: this.discoveredToolSignatures,
     })
 
     return {

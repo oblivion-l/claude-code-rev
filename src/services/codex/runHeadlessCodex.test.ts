@@ -443,11 +443,11 @@ describe('runHeadlessCodex', () => {
     expect(requestBodies[1]?.tools).toEqual([
       expect.objectContaining({
         type: 'function',
-        name: 'ToolSearch',
+        name: 'mcp__docs__search',
       }),
       expect.objectContaining({
         type: 'function',
-        name: 'mcp__docs__search',
+        name: 'ToolSearch',
       }),
     ])
     expect(requestBodies[2]?.input).toEqual([
@@ -579,11 +579,11 @@ describe('runHeadlessCodex', () => {
     expect(requestBodies[2]?.tools).toEqual([
       expect.objectContaining({
         type: 'function',
-        name: 'ToolSearch',
+        name: 'mcp__docs__search',
       }),
       expect.objectContaining({
         type: 'function',
-        name: 'mcp__docs__search',
+        name: 'ToolSearch',
       }),
     ])
     expect(secondRun.exitCode).toBe(0)
@@ -640,11 +640,11 @@ describe('runHeadlessCodex', () => {
       expect(requestBody.tools).toEqual([
         expect.objectContaining({
           type: 'function',
-          name: 'ToolSearch',
+          name: 'mcp__docs__search',
         }),
         expect.objectContaining({
           type: 'function',
-          name: 'mcp__docs__search',
+          name: 'ToolSearch',
         }),
       ])
 

@@ -8,8 +8,10 @@ import type { MCPServerConnection } from 'src/services/mcp/types.js'
 import { ToolSearchTool } from 'src/tools/ToolSearchTool/ToolSearchTool.js'
 import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js'
 import {
+  analyzeCodexFunctionToolVisibility,
   executeCodexFunctionCalls,
   extractCodexFunctionCalls,
+  getCodexDiscoveredToolSignatureMap,
   mapCodexFunctionTools,
   selectCodexFunctionTools,
 } from './toolBridge.js'
@@ -238,8 +240,107 @@ describe('selectCodexFunctionTools', () => {
     expect(
       selectCodexFunctionTools(runtime.tools, runtime, {
         discoveredToolNames: new Set(['mcp__docs__search']),
+        discoveredToolSignatures: getCodexDiscoveredToolSignatureMap(
+          runtime.tools,
+          runtime,
+        ),
       }),
-    ).toEqual([ToolSearchTool, bridgedMcpTool])
+    ).toEqual([bridgedMcpTool, ToolSearchTool])
+  })
+
+  it('deduplicates same-name tools by active visibility first and source priority second', () => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    const localRead = createFakeTool('Read')
+    const bridgeRead = createFakeTool('Read', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'read',
+      },
+    })
+
+    const runtime = createFakeRuntime(
+      [ToolSearchTool, localRead, bridgeRead],
+      [createConnectedMcpClient('docs')],
+    )
+
+    const visibilities = analyzeCodexFunctionToolVisibility(runtime.tools, runtime, {
+      discoveredToolNames: new Set(['Read']),
+      discoveredToolSignatures: getCodexDiscoveredToolSignatureMap(
+        runtime.tools,
+        runtime,
+      ),
+    })
+    expect(visibilities).toContainEqual(
+      expect.objectContaining({
+        name: 'Read',
+        source: 'local',
+        selected: true,
+        reason: 'always-visible',
+      }),
+    )
+    expect(visibilities).toContainEqual(
+      expect.objectContaining({
+        name: 'Read',
+        source: 'mcp-bridge',
+        selected: false,
+        reason: 'duplicate-lower-priority',
+      }),
+    )
+  })
+
+  it('hides stale discovered deferred tools when the source signature changes', () => {
+    process.env.ENABLE_TOOL_SEARCH = 'true'
+    const bridgedMcpTool = createFakeTool('mcp__docs__search', {
+      isMcp: true,
+      mcpInfo: {
+        serverName: 'docs',
+        toolName: 'search',
+      },
+    })
+
+    const originalRuntime = createFakeRuntime(
+      [ToolSearchTool, bridgedMcpTool],
+      [createConnectedMcpClient('docs')],
+    )
+    const staleSignatures = getCodexDiscoveredToolSignatureMap(
+      originalRuntime.tools,
+      originalRuntime,
+    )
+
+    const updatedRuntime = createFakeRuntime(
+      [ToolSearchTool, bridgedMcpTool],
+      [
+        {
+          ...createConnectedMcpClient('docs'),
+          config: {
+            command: 'node',
+            args: ['updated-server.js'],
+            scope: 'user',
+          },
+        },
+      ],
+    )
+    const visibilities = analyzeCodexFunctionToolVisibility(
+      updatedRuntime.tools,
+      updatedRuntime,
+      {
+        discoveredToolNames: new Set(['mcp__docs__search']),
+        discoveredToolSignatures: staleSignatures,
+      },
+    )
+
+    expect(visibilities).toContainEqual(
+      expect.objectContaining({
+        name: 'mcp__docs__search',
+        selected: false,
+        reason: 'stale-discovery',
+      }),
+    )
+    expect(selectCodexFunctionTools(updatedRuntime.tools, updatedRuntime, {
+      discoveredToolNames: new Set(['mcp__docs__search']),
+      discoveredToolSignatures: staleSignatures,
+    })).toEqual([ToolSearchTool])
   })
 })
 

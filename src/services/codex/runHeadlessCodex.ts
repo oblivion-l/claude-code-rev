@@ -31,10 +31,11 @@ import {
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
 import {
-  getCodexDiscoveredToolNames,
+  getCodexDiscoveredToolState,
   withCodexDiscoveredToolNames,
 } from './discoveredTools.js'
 import {
+  getCodexDiscoveredToolSignatureMap,
   extractCodexFunctionCalls,
 } from './toolBridge.js'
 import {
@@ -281,9 +282,11 @@ export async function runHeadlessCodex({
   const abortController = new AbortController()
   const sigintHandler = () => abortController.abort()
   process.on('SIGINT', sigintHandler)
-  const discoveredToolNames = getCodexDiscoveredToolNames(
+  const discoveredToolState = getCodexDiscoveredToolState(
     continuationCheck.conversationState,
   )
+  const discoveredToolNames = discoveredToolState.names
+  const discoveredToolSignatures = discoveredToolState.signatures
   const {
     requestPlan,
     requestTools: initialRequestTools,
@@ -294,6 +297,7 @@ export async function runHeadlessCodex({
     model: config.model,
     abortController,
     discoveredToolNames,
+    discoveredToolSignatures,
   })
 
   let accumulatedText = ''
@@ -321,6 +325,7 @@ export async function runHeadlessCodex({
     return withCodexDiscoveredToolNames({
       state: nextConversationState,
       discoveredToolNames,
+      discoveredToolSignatures,
     })
   }
 
@@ -339,6 +344,7 @@ export async function runHeadlessCodex({
               runtime,
               model: config.model,
               discoveredToolNames,
+              discoveredToolSignatures,
             })
       const response = await createCodexResponseStream({
         config,
@@ -403,8 +409,16 @@ export async function runHeadlessCodex({
           mode: 'headless',
         }).execute(functionCalls)
         currentInput = execution.outputs
+        const currentSignatures = getCodexDiscoveredToolSignatureMap(
+          runtime?.tools ?? [],
+          runtime,
+        )
         for (const toolName of execution.selectedToolNames) {
           discoveredToolNames.add(toolName)
+          const signature = currentSignatures.get(toolName)
+          if (signature) {
+            discoveredToolSignatures.set(toolName, signature)
+          }
         }
         continue
       }
@@ -506,6 +520,7 @@ export async function runHeadlessCodex({
           ],
         },
         discoveredToolNames,
+        discoveredToolSignatures,
       })
     }
 

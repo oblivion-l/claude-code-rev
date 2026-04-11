@@ -3,6 +3,7 @@ import {
   extractCompletedResponse,
   extractResponseText,
   extractTextDelta,
+  extractTextSnapshot,
   extractUsage,
   getCodexFailureMessage,
 } from './stream.js'
@@ -48,6 +49,33 @@ describe('extractResponseText', () => {
         ],
       }),
     ).toBe('part 1 part 2')
+  })
+})
+
+describe('extractTextSnapshot', () => {
+  it('reads completed output_text snapshots', () => {
+    expect(
+      extractTextSnapshot({
+        type: 'response.output_text.done',
+        text: 'final answer',
+      }),
+    ).toBe('final answer')
+  })
+
+  it('reads completed output item snapshots when response.completed output is empty', () => {
+    expect(
+      extractTextSnapshot({
+        type: 'response.output_item.done',
+        item: {
+          content: [
+            {
+              type: 'output_text',
+              text: 'fallback answer',
+            },
+          ],
+        },
+      }),
+    ).toBe('fallback answer')
   })
 })
 

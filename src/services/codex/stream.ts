@@ -54,6 +54,29 @@ export function extractTextDelta(event: CodexStreamEvent): string {
   return ''
 }
 
+export function extractTextSnapshot(event: CodexStreamEvent): string {
+  if (event.type === 'response.output_text.done' && typeof event.text === 'string') {
+    return event.text
+  }
+
+  if (
+    event.type === 'response.content_part.done' &&
+    isObject(event.part) &&
+    typeof event.part.text === 'string'
+  ) {
+    return event.part.text
+  }
+
+  if (
+    event.type === 'response.output_item.done' &&
+    isObject(event.item)
+  ) {
+    return extractResponseText(event.item)
+  }
+
+  return ''
+}
+
 export function extractResponseText(response: unknown): string {
   if (!isObject(response)) {
     return ''
@@ -61,6 +84,10 @@ export function extractResponseText(response: unknown): string {
 
   if (typeof response.output_text === 'string') {
     return response.output_text
+  }
+
+  if (Array.isArray(response.content)) {
+    return readTextContent(response.content)
   }
 
   if (!Array.isArray(response.output)) {

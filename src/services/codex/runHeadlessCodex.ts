@@ -48,6 +48,7 @@ import {
   extractResponseId,
   extractResponseText,
   extractTextDelta,
+  extractTextSnapshot,
   extractUsage,
   getCodexFailureMessage,
 } from './stream.js'
@@ -333,6 +334,11 @@ export async function runHeadlessCodex({
         if (delta) {
           roundText += delta
           roundDeltas.push(delta)
+        }
+
+        const textSnapshot = extractTextSnapshot(event)
+        if (textSnapshot && !roundText) {
+          roundText = textSnapshot
         }
 
         const completed = extractCompletedResponse(event)

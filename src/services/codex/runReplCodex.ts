@@ -29,6 +29,7 @@ import {
   extractResponseId,
   extractResponseText,
   extractTextDelta,
+  extractTextSnapshot,
   extractUsage,
   getCodexFailureMessage,
 } from './stream.js'
@@ -413,6 +414,11 @@ export class CodexReplSession {
               type: 'assistant.delta',
               delta,
             }
+          }
+
+          const textSnapshot = extractTextSnapshot(event)
+          if (textSnapshot && !roundText) {
+            roundText = textSnapshot
           }
 
           const completed = extractCompletedResponse(event)

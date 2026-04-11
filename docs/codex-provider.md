@@ -101,8 +101,29 @@ export OPENAI_API_KEY=your_api_key
 推荐用法：
 
 - 临时调试：直接设置环境变量
-- 长期本机使用：写入 `~/.claude/codex-provider.json`
+- 长期本机使用：先运行 setup 脚本，再由脚本写入 `~/.claude/codex-provider.json`
 - 多环境切换：设置 `CLAUDE_CODE_CODEX_CONFIG_PATH`
+
+## 初始化脚本
+
+为了减少手工编辑 JSON 的出错率，仓库中新增了 Codex 初始化脚本：
+
+```bash
+bun run codex:setup --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
+```
+
+它会：
+
+- 从命令行参数、当前环境变量和现有配置文件中合并最终配置
+- 写入 `~/.claude/codex-provider.json`
+- 对写入后的配置做一次本地校验
+- 输出最终使用的配置路径和摘要
+
+也可以只传部分参数，用于更新已有配置：
+
+```bash
+bun run codex:setup --base-url https://www.xmapi.cc/v1 --model gpt-5.4
+```
 
 可选环境变量：
 
@@ -121,6 +142,8 @@ export OPENAI_PROJECT_ID=proj_123
 
 - `scripts/codex.cmd`
 - `scripts/codex.ps1`
+- `scripts/setup-codex.cmd`
+- `scripts/setup-codex.ps1`
 
 它们会自动：
 
@@ -132,6 +155,7 @@ export OPENAI_PROJECT_ID=proj_123
 `cmd` 方式：
 
 ```bat
+scripts\setup-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 scripts\codex.cmd -p "Explain this repository"
 scripts\codex.cmd
 ```
@@ -139,6 +163,7 @@ scripts\codex.cmd
 PowerShell 方式：
 
 ```powershell
+.\scripts\setup-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 .\scripts\codex.ps1 -p "Explain this repository"
 .\scripts\codex.ps1
 ```

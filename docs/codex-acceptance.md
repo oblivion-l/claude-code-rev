@@ -49,6 +49,12 @@ export CODEX_MODEL=gpt-5-codex
 }
 ```
 
+也可以直接运行初始化脚本生成：
+
+```bash
+bun run codex:setup --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
+```
+
 可选：
 
 ```bash
@@ -84,10 +90,12 @@ CASE_TIMEOUT_SECONDS=60 bash scripts/codex-acceptance.sh --quick
 Windows 启动脚本：
 
 ```bat
+scripts\setup-codex.cmd --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 scripts\codex.cmd -p "Reply with OK only."
 ```
 
 ```powershell
+.\scripts\setup-codex.ps1 --api-key your_api_key --base-url https://www.xmapi.cc/v1 --model gpt-5.4
 .\scripts\codex.ps1 -p "Reply with OK only."
 ```
 

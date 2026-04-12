@@ -1271,6 +1271,7 @@ describe('createCodexReplSession', () => {
       'status',
       'capabilities',
       'reason',
+      'hint',
     ])
     expectLineToContainDiagnostics(bridgeConnectedLine, {
       source: 'mcp-bridge',
@@ -1281,6 +1282,7 @@ describe('createCodexReplSession', () => {
       status: 'connected',
       capabilities: 'tools',
       reason: 'none',
+      hint: 'none',
     })
     expect(bridgeConnectedLine).toContain('server-info=unknown')
     expect(bridgeConnectedLine).toContain('command=node server.js')
@@ -1294,6 +1296,7 @@ describe('createCodexReplSession', () => {
       'status',
       'capabilities',
       'reason',
+      'hint',
     ])
     expectLineToContainDiagnostics(bridgeFailedLine, {
       source: 'mcp-bridge',
@@ -1304,6 +1307,7 @@ describe('createCodexReplSession', () => {
       status: 'failed',
       capabilities: 'none',
       reason: 'auth expired',
+      hint: 'refresh-auth',
     })
     expect(bridgeFailedLine).toContain('plugin=github@acme')
 
@@ -1316,6 +1320,7 @@ describe('createCodexReplSession', () => {
       'status',
       'capabilities',
       'reason',
+      'hint',
     ])
     expectLineToContainDiagnostics(remoteLine, {
       source: 'remote-mcp',
@@ -1326,6 +1331,7 @@ describe('createCodexReplSession', () => {
       status: 'connected',
       capabilities: 'none',
       reason: 'none',
+      hint: 'none',
     })
     expect(remoteLine).toContain('decision=selected')
     expect(remoteLine).toContain('selection-reason=passthrough')
@@ -1439,6 +1445,7 @@ describe('createCodexReplSession', () => {
       'status',
       'capabilities',
       'reason',
+      'hint',
     ])
     expectLineToContainDiagnostics(bridgeToolLine, {
       source: 'mcp-bridge',
@@ -1464,6 +1471,7 @@ describe('createCodexReplSession', () => {
       'status',
       'capabilities',
       'reason',
+      'hint',
     ])
     expectLineToContainDiagnostics(remoteToolLine, {
       source: 'remote-mcp',
@@ -1474,6 +1482,7 @@ describe('createCodexReplSession', () => {
       status: 'connected',
       capabilities: 'none',
       reason: 'none',
+      hint: 'none',
     })
     expect(remoteToolLine).toContain('decision=selected')
     expect(remoteToolLine).toContain('selection-reason=passthrough')
@@ -1540,7 +1549,7 @@ describe('createCodexReplSession', () => {
       '- ToolSearch [tool-search] source=tool-search, decision=selected, selection-reason=tool-search-for-deferred',
     )
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=false, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools endpoint=node changed-docs-server.js reason=none',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=false, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools endpoint=node changed-docs-server.js reason=none hint=none',
     )
   })
 
@@ -1598,7 +1607,7 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Function tools exposed: 2')
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=true, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools endpoint=node docs-server.js reason=none',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=true, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools endpoint=node docs-server.js reason=none hint=none',
     )
   })
 

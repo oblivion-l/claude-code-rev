@@ -286,6 +286,7 @@ bun run dev
 - `/status`
   - 查看当前 provider、model、base URL、session id、当前目录、conversation state、state 文件路径、最后保存时间，以及 MCP 连接状态。
   - 对每个 MCP bridge server 额外显示 `scope/plugin` 来源、目标端点（`command` 或 `endpoint`）、连接后 server info 与 capabilities，失败时统一输出 `reason=...`。
+  - MCP 失败或未连通时还会附带 `hint=`，如 `refresh-auth`、`check-connection`、`enable-server`、`wait-retry`、`start-bridge`，用于快速定位下一步排查方向。
   - `remote-mcp` 与 `mcp-bridge` 现在都会补齐同一套核心诊断字段：`source`、`server`、`transport`、`scope`、`endpoint`、`status`、`capabilities`、`reason`。
   - 当当前目录已有或缺少 persisted conversation state 时，`/status` 会直接给出对应的 `Resume hint:`。
 - `/resume`
@@ -301,6 +302,7 @@ bun run dev
   - 对已发现的 deferred bridge 工具，`/tools` 还会显示 `recovered=true|false`，用于快速判断当前 live source 是否已经回到与已发现签名一致的可用状态。
   - `remote-mcp` 与 `mcp-bridge` 的诊断字段保持同一套键名，便于 grep、日志检索和故障对比。
   - MCP bridge tool 会联动显示所属 `server`、当前 `status`、来源与端点信息，便于定位是 ToolSearch 未发现、bridge 未连通，还是 server 鉴权/配置异常。
+  - 当 bridge 侧不可用时，工具行也会附带同样的 `hint=` 字段，方便从 `/tools` 直接判断是认证、连通性还是配置开关问题。
 - `/exit`
   - 退出当前 Codex REPL。
 

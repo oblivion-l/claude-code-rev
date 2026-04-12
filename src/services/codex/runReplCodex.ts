@@ -383,6 +383,7 @@ type CodexReplDiagnosticFields = {
   status: 'connected' | 'failed' | 'disconnected' | 'unavailable'
   capabilities: string
   reason: string
+  hint: string
 }
 
 function getCodexReplMcpTransport(
@@ -441,7 +442,44 @@ function formatCodexReplDiagnosticFields(
     `status=${fields.status}`,
     `capabilities=${fields.capabilities}`,
     `reason=${fields.reason}`,
+    `hint=${fields.hint}`,
   ]
+}
+
+function formatCodexReplMcpRepairHint(
+  client?: MCPServerConnection,
+): string {
+  if (!client) {
+    return 'start-bridge'
+  }
+
+  if (client.type === 'connected') {
+    return 'none'
+  }
+
+  if (client.type === 'needs-auth') {
+    return 'refresh-auth'
+  }
+
+  if (client.type === 'pending') {
+    return 'wait-retry'
+  }
+
+  if (client.type === 'disabled') {
+    return 'enable-server'
+  }
+
+  const reason = client.error?.toLowerCase() ?? ''
+  if (
+    reason.includes('auth') ||
+    reason.includes('token') ||
+    reason.includes('oauth') ||
+    reason.includes('credential')
+  ) {
+    return 'refresh-auth'
+  }
+
+  return 'check-connection'
 }
 
 function buildCodexReplBridgeDiagnosticFields(
@@ -467,6 +505,7 @@ function buildCodexReplBridgeDiagnosticFields(
     status: getCodexReplNormalizedMcpStatus(client),
     capabilities,
     reason,
+    hint: formatCodexReplMcpRepairHint(client),
   }
 }
 
@@ -482,6 +521,7 @@ function buildCodexReplRemoteMcpDiagnosticFields(
     status: 'connected',
     capabilities: 'none',
     reason: 'none',
+    hint: 'none',
   }
 }
 
@@ -1027,6 +1067,7 @@ function formatCodexReplFunctionToolLine(args: {
     if (client?.type === 'connected') {
       segments.push(`reason=${diagnostics.reason}`)
     }
+    segments.push(`hint=${diagnostics.hint}`)
   }
 
   return `- ${args.visibility.tool.name} [${source}]${segments.length > 0 ? ` ${segments.join(' ')}` : ''}`

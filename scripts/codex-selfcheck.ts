@@ -1,5 +1,9 @@
 import { existsSync } from 'fs'
 import { getCodexConfigFilePath, readCodexConfigFile } from '../src/services/codex/configFile.js'
+import {
+  classifyCodexWindowsSelfCheckFailure,
+  formatCodexWindowsScriptError,
+} from '../src/services/codex/windowsDiagnostics.js'
 
 type SelfCheckOptions = {
   skipApi: boolean
@@ -168,6 +172,19 @@ async function main(): Promise<void> {
       ...results.map(formatResult),
       '',
       `汇总：${results.length - failed.length}/${results.length} 通过`,
+      ...(failed.length > 0
+        ? [
+            '',
+            '修复建议：',
+            ...failed.map(result => {
+              const diagnostic = classifyCodexWindowsSelfCheckFailure({
+                name: result.name,
+                detail: result.detail,
+              })
+              return `- ${result.name} error_code=${diagnostic.errorCode} hint=${diagnostic.hint} detail=${diagnostic.message}`
+            }),
+          ]
+        : []),
       '',
     ].join('\n'),
   )
@@ -177,4 +194,15 @@ async function main(): Promise<void> {
   }
 }
 
-await main()
+try {
+  await main()
+} catch (error) {
+  process.stderr.write(
+    `Error: ${formatCodexWindowsScriptError({
+      script: 'codex-selfcheck',
+      error,
+    })}\n`,
+  )
+  process.stderr.write('Use --help to see selfcheck options.\n')
+  process.exit(1)
+}

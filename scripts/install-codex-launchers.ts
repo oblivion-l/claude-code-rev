@@ -2,6 +2,7 @@ import {
   getCodexLauncherDir,
   writeCodexWindowsLaunchers,
 } from '../src/services/codex/windowsLaunchers.js'
+import { formatCodexWindowsScriptError } from '../src/services/codex/windowsDiagnostics.js'
 
 function printUsage(): void {
   process.stdout.write(
@@ -65,7 +66,10 @@ try {
   )
 } catch (error) {
   process.stderr.write(
-    `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+    `Error: ${formatCodexWindowsScriptError({
+      script: 'install-launchers',
+      error,
+    })}\n`,
   )
   process.stderr.write('Use --help to see launcher options.\n')
   process.exit(1)

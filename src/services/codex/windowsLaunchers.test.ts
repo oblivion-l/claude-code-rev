@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import {
@@ -66,5 +66,22 @@ describe('writeCodexWindowsLaunchers', () => {
     ).toContain('codex-selfcheck.cmd')
 
     rmSync(launcherDir, { recursive: true, force: true })
+  })
+
+  it('wraps launcher directory failures with a grep-friendly diagnostic', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'codex-launcher-error-'))
+    const launcherDir = join(tempDir, 'occupied-path')
+    writeFileSync(launcherDir, 'busy', 'utf8')
+
+    expect(() =>
+      writeCodexWindowsLaunchers({
+        launcherDir,
+        repoRoot: '/repo/root',
+      }),
+    ).toThrow(
+      '[launcher-runtime] error_code=CODEX_WINDOWS_PATH_ERROR hint=check-path',
+    )
+
+    rmSync(tempDir, { recursive: true, force: true })
   })
 })

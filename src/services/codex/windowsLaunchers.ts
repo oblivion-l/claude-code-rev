@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 import { getClaudeConfigHomeDir } from 'src/utils/envUtils.js'
+import { formatCodexWindowsScriptError } from './windowsDiagnostics.js'
 
 export type CodexLauncherTarget = {
   fileName: string
@@ -68,7 +69,16 @@ export function writeCodexWindowsLaunchers(args?: {
 }): string[] {
   const launcherDir = args?.launcherDir ?? getCodexLauncherDir()
   const repoRoot = resolve(args?.repoRoot ?? process.cwd())
-  mkdirSync(launcherDir, { recursive: true })
+  try {
+    mkdirSync(launcherDir, { recursive: true })
+  } catch (error) {
+    throw new Error(
+      formatCodexWindowsScriptError({
+        script: 'launcher-runtime',
+        error,
+      }),
+    )
+  }
 
   const writtenPaths: string[] = []
   for (const launcher of CODEX_WINDOWS_LAUNCHERS) {
@@ -78,7 +88,16 @@ export function writeCodexWindowsLaunchers(args?: {
       ? buildPs1Launcher(targetPath)
       : buildCmdLauncher(targetPath)
 
-    writeFileSync(outputPath, content, 'utf8')
+    try {
+      writeFileSync(outputPath, content, 'utf8')
+    } catch (error) {
+      throw new Error(
+        formatCodexWindowsScriptError({
+          script: 'launcher-runtime',
+          error: `${error instanceof Error ? error.message : String(error)} launcher=${outputPath} target=${targetPath}`,
+        }),
+      )
+    }
     writtenPaths.push(outputPath)
   }
 

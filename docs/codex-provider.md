@@ -205,6 +205,7 @@ bun run codex:install-launchers
 Windows 首次部署建议参考：
 
 - [codex-windows.md](./codex-windows.md)
+- Windows setup / launcher / selfcheck 的常见失败路径现在会补稳定 `error_code=` 与 `hint=`，便于直接 grep `CODEX_WINDOWS_*` 做诊断。
 
 ## 使用示例
 

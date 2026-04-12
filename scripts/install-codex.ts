@@ -1,3 +1,5 @@
+import { formatCodexWindowsScriptError } from '../src/services/codex/windowsDiagnostics.js'
+
 type InstallOptions = {
   apiKey?: string
   baseUrl?: string
@@ -175,7 +177,11 @@ function runStep(step: Step): void {
 
   if (proc.exitCode !== 0) {
     throw new Error(
-      `${step.name} failed with exit code ${proc.exitCode}.`,
+      formatCodexWindowsScriptError({
+        script: 'install-codex',
+        stepName: step.name,
+        error: `${step.name} failed with exit code ${proc.exitCode}.`,
+      }),
     )
   }
 }
@@ -232,7 +238,10 @@ try {
   main()
 } catch (error) {
   process.stderr.write(
-    `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+    `Error: ${formatCodexWindowsScriptError({
+      script: 'install-codex',
+      error,
+    })}\n`,
   )
   process.stderr.write('Use --help to see install options.\n')
   process.exit(1)

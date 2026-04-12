@@ -154,30 +154,47 @@ codex-selfcheck.ps1 --skip-api
 
 ## 8. 常见问题
 
-`未找到 bun，请先安装 Bun 并加入 PATH。`
+`error_code=CODEX_WINDOWS_DEPENDENCY_BUN_MISSING`
 
 - 说明 Bun 未安装，或当前终端没有刷新 PATH。
-- 重新打开 PowerShell 后再试。
+- 先安装 Bun，并重新打开 PowerShell / cmd。
+- 包装脚本会同时给出 `hint=install-bun`，便于 grep 与日志检索。
 
-`未检测到 OPENAI_API_KEY，也未找到 Codex 配置文件`
+`error_code=CODEX_WINDOWS_SETUP_API_KEY_MISSING` 或 `error_code=CODEX_WINDOWS_CONFIG_MISSING`
 
 - 说明既没有环境变量，也没有 `codex-provider.json`。
 - 先运行 `setup-codex.ps1`。
+- 如果是 setup 直接报错，优先补 `--api-key` 或设置 `OPENAI_API_KEY`。
 
-`codex-api` 自检失败
+`error_code=CODEX_WINDOWS_API_CHECK_FAILED`
 
 - 说明本地环境没问题，但真实 API 请求没有通过。
 - 先检查 `~/.claude/codex-provider.json` 中的 `baseUrl`、`model`、`apiKey`。
+- 如果只是想先验证本地链路，先执行 `codex-selfcheck.ps1 --skip-api`。
 
-`install-codex` 失败
+`error_code=CODEX_WINDOWS_INSTALL_DEPENDENCY_FAILED` / `CODEX_WINDOWS_INSTALL_LAUNCHER_FAILED` / `CODEX_WINDOWS_INSTALL_SELFCHECK_FAILED`
 
 - 说明安装链路中的某一步失败了。
 - 先看终端里最后一个失败步骤，是 `bun install`、`setup-codex` 还是 `codex-selfcheck`。
+- 这些错误行会同时带 `step=...` 与 `hint=...`，可直接按步骤定位。
 
-找不到 `codex.ps1` / `codex.cmd`
+`error_code=CODEX_WINDOWS_LAUNCHER_WRITE_FAILED` 或找不到 `codex.ps1` / `codex.cmd`
 
 - 说明 launcher 目录还没加入 PATH，或安装时跳过了 launcher 生成。
 - 可重新执行 `bun run codex:install-launchers`，或在安装器里不要加 `--skip-launchers`。
+- 如果是写入失败，优先检查 launcher 目录是否可写、是否被同名文件占用，错误行会带 `hint=check-launcher-dir` 或 `hint=check-permissions`。
+
+## 8.1 失败到修复建议速查
+
+| error_code | 常见原因 | 建议动作 |
+| --- | --- | --- |
+| `CODEX_WINDOWS_DEPENDENCY_BUN_MISSING` | Bun 未安装或 PATH 未刷新 | 安装 Bun，重开终端后重试 |
+| `CODEX_WINDOWS_SETUP_API_KEY_MISSING` | setup 阶段没有可用 apiKey | 传 `--api-key` 或设置 `OPENAI_API_KEY` |
+| `CODEX_WINDOWS_CONFIG_MISSING` | selfcheck 没找到环境变量和配置文件 | 先运行 `setup-codex.ps1` |
+| `CODEX_WINDOWS_PERMISSION_DENIED` | 配置目录或 launcher 目录无写权限 | 切换到可写目录，或检查权限/安全软件拦截 |
+| `CODEX_WINDOWS_PATH_ERROR` | 目标路径不存在、被文件占用或路径错误 | 检查 `--launcher-dir`、仓库路径和配置目录 |
+| `CODEX_WINDOWS_INSTALL_SELFCHECK_FAILED` | 安装流程最终卡在自检 | 先单独运行 `codex-selfcheck.ps1 --skip-api` 缩小范围 |
+| `CODEX_WINDOWS_API_CHECK_FAILED` | 本地 OK，但 API 请求失败 | 检查 `apiKey/baseUrl/model`，必要时先走 `--skip-api` |
 
 ## 9. 推荐日常流程
 

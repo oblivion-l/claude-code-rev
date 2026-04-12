@@ -4,7 +4,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDir
 
 if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
-  Write-Error '[install-codex.ps1] 未找到 bun，请先安装 Bun 并加入 PATH。'
+  Write-Error '[install-codex.ps1] error_code=CODEX_WINDOWS_DEPENDENCY_BUN_MISSING hint=install-bun 未找到 bun，请先安装 Bun 并加入 PATH。'
 }
 
 Push-Location $repoRoot

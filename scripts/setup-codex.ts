@@ -4,6 +4,7 @@ import {
   readCodexConfigFile,
   writeCodexConfigFile,
 } from '../src/services/codex/configFile.js'
+import { formatCodexWindowsScriptError } from '../src/services/codex/windowsDiagnostics.js'
 
 type SetupArgs = {
   apiKey?: string
@@ -194,7 +195,10 @@ try {
   main()
 } catch (error) {
   process.stderr.write(
-    `Error: ${error instanceof Error ? error.message : String(error)}\n`,
+    `Error: ${formatCodexWindowsScriptError({
+      script: 'setup-codex',
+      error,
+    })}\n`,
   )
   process.stderr.write('Use --help to see setup options.\n')
   process.exit(1)

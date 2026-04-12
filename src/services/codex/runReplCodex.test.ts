@@ -1145,6 +1145,9 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Provider: Codex')
     expect(lines).toContain('Session id: status_state_1')
+    expect(
+      lines.some(line => line.startsWith('Session source:')),
+    ).toBe(false)
     expect(lines).toContain(
       'Persisted conversation state: persisted conversation state is available for the current directory.',
     )
@@ -1986,7 +1989,7 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toEqual([
-      'Resumed persisted conversation state resume_state_1 (last response resp_resume_1).',
+      'Resumed persisted conversation state resume_state_1 (last response resp_resume_1). source-cwd=/tmp/resume-project',
     ])
     expect(session.state.stateId).toBe('resume_state_1')
     expect(session.state.lastResponseId).toBe('resp_resume_1')
@@ -2032,7 +2035,7 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toEqual([
-      'Resumed persisted conversation state resume_state_cwd (last response resp_resume_cwd).',
+      'Resumed persisted conversation state resume_state_cwd (last response resp_resume_cwd). source-cwd=/tmp/resume-by-cwd',
     ])
   })
 
@@ -2090,9 +2093,60 @@ describe('createCodexReplSession', () => {
 
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toEqual([
-      'Resumed persisted conversation state resume_state_old (last response resp_resume_old).',
+      'Resumed persisted conversation state resume_state_old (last response resp_resume_old). source-cwd=/tmp/resume-repair',
     ])
     expect(session.state.stateId).toBe('resume_state_old')
+  })
+
+  it('shows cross-directory fallback source details after /resume recovers a global session', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'resume_state_global',
+        cwd: '/tmp/global-repo',
+        conversationId: 'resume_state_global',
+        lastResponseId: 'resp_resume_global',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/global-repo',
+      },
+    )
+
+    const session = createCodexReplSession({
+      cwd: '/tmp/current-repo',
+    })
+    const resumeLines: string[] = []
+    const resumeOutcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/resume',
+      writeLine: message => resumeLines.push(message ?? ''),
+    })
+
+    expect(resumeOutcome).toEqual({ kind: 'continue' })
+    expect(resumeLines).toEqual([
+      'Resumed persisted conversation state resume_state_global (last response resp_resume_global). source-cwd=/tmp/global-repo',
+    ])
+
+    const statusLines: string[] = []
+    const statusOutcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/status',
+      writeLine: message => statusLines.push(message ?? ''),
+    })
+
+    expect(statusOutcome).toEqual({ kind: 'continue' })
+    expect(statusLines).toContain(
+      'Session source: global-fallback source-cwd=/tmp/global-repo requested-cwd=/tmp/current-repo',
+    )
   })
 
   it('surfaces readable resume errors for /resume', async () => {

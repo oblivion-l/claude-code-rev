@@ -2,7 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import {
   buildCodexContinueMissingStateMessage,
   buildCodexPersistedConversationStateStatus,
+  buildCodexReplGlobalFallbackStatusLine,
   buildCodexReplResumeHint,
+  buildCodexReplResumeSourceSuffix,
   buildCodexResumeMissingStateMessage,
   buildCodexResumeSessionAtMissingTurnMessage,
 } from './sessionText.js'
@@ -110,6 +112,22 @@ describe('sessionText', () => {
       }),
     ).toBe(
       'Resume hint: use /resume to reload the latest persisted conversation state for the current directory.',
+    )
+  })
+
+  it('formats repl resume source diagnostics for success and status output', () => {
+    expect(
+      buildCodexReplResumeSourceSuffix({
+        sourceCwd: '/tmp/source-project',
+      }),
+    ).toBe(' source-cwd=/tmp/source-project')
+    expect(
+      buildCodexReplGlobalFallbackStatusLine({
+        sourceCwd: '/tmp/source-project',
+        requestedCwd: '/tmp/current-project',
+      }),
+    ).toBe(
+      'Session source: global-fallback source-cwd=/tmp/source-project requested-cwd=/tmp/current-project',
     )
   })
 })

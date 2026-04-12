@@ -292,6 +292,7 @@ bun run dev
   - 按当前工作目录加载最近一次持久化的 Codex REPL conversation state。
 - `/resume <state-id>`
   - 按显式 state id 加载持久化的 conversation state。
+  - 成功输出会追加 `source-cwd=...`，明确当前恢复命中的持久化 state 来自哪个目录。
 - `/model`
   - 查看当前实际使用的模型与 API base URL。
 - `/tools`
@@ -417,6 +418,7 @@ codex> /exit
 - `/resume <state-id>` 会按显式 state id 加载持久化 state
 - `/resume` 与 `/resume <state-id>` 的成功/失败文案已统一，便于脚本化判断
 - `/resume` 会复用与 headless 相同的扫描修复逻辑：stale pointer 会自动修复，损坏 state 会跳过并继续尝试其他候选
+- 如果 `/resume` 最终命中了非当前 cwd 的全局最近可用 state，成功行会带 `source-cwd=...`，`/status` 还会额外显示 `Session source: global-fallback ...` 提示当前会话来源
 - 若没有可用 state，会直接返回清晰错误，不会静默新建会话
 - `/status` 会使用与 headless 对齐的 wording 提示当前目录是否已有可继续的 persisted conversation state
 - `/status` 会追加 `Resume hint:`，在“当前目录已有 state”、“当前目录暂无 state”、“当前没有 cwd”三种情况下分别给出下一步建议

@@ -57,6 +57,8 @@ import {
 } from './replState.js'
 import {
   buildCodexContinueMissingStateMessage,
+  buildCodexReplGlobalFallbackStatusLine,
+  buildCodexReplResumeSourceSuffix,
   buildCodexPersistedConversationStateStatus,
   buildCodexReplResumeHint,
   buildCodexResumeMissingStateMessage,
@@ -131,6 +133,15 @@ type CodexReplSessionsCommandOptions = {
 
 type CodexReplSessionsView = {
   lines: string[]
+}
+
+type CodexReplResumeResolution = {
+  state: CodexReplPersistedState
+  sourceCwd?: string
+  globalFallback?: {
+    sourceCwd: string
+    requestedCwd: string
+  }
 }
 
 function accumulateCodexUsage(
@@ -607,7 +618,7 @@ function summarizeCodexReplRemoteMcpTools(mcpTools: CodexMcpTool[]): string[] {
 function resolveCodexReplPersistedStateForResume(options: {
   cwd?: string
   stateId?: string
-}): CodexReplPersistedState {
+}): CodexReplResumeResolution {
   try {
     const resolution = resolveCodexReplStateWithRepair(options)
     const state = resolution.state
@@ -620,7 +631,20 @@ function resolveCodexReplPersistedStateForResume(options: {
       )
     }
 
-    return state
+    return {
+      state,
+      sourceCwd: state.cwd,
+      globalFallback:
+        resolution.diagnostics.usedGlobalFallback &&
+        options.cwd &&
+        state.cwd &&
+        state.cwd !== options.cwd
+          ? {
+              sourceCwd: state.cwd,
+              requestedCwd: options.cwd,
+            }
+          : undefined,
+    }
   } catch (error) {
     const message = errorMessage(error)
     if (message.startsWith('No persisted codex-repl conversation state was found')) {
@@ -661,9 +685,15 @@ function withCodexReplModelMetadata(args: {
 }
 
 function formatCodexReplResumeSuccessMessage(
-  state: CodexReplPersistedState | CodexReplConversationState,
+  args: {
+    state: CodexReplPersistedState | CodexReplConversationState
+    sourceCwd?: string
+  },
 ): string {
-  return `Resumed persisted conversation state ${state.stateId}${state.lastResponseId ? ` (last response ${state.lastResponseId})` : ''}.`
+  const { state } = args
+  return `Resumed persisted conversation state ${state.stateId}${state.lastResponseId ? ` (last response ${state.lastResponseId})` : ''}.${buildCodexReplResumeSourceSuffix({
+    sourceCwd: args.sourceCwd,
+  })}`
 }
 
 function formatCodexReplNewSessionMessage(
@@ -1124,7 +1154,7 @@ async function handleCodexReplSlashCommand(args: {
       return { kind: 'continue' }
     case 'resume': {
       try {
-        const resumeState = command.argText
+        const resumeResolution = command.argText
           ? resolveCodexReplPersistedStateForResume({
               stateId: command.argText,
             })
@@ -1136,9 +1166,17 @@ async function handleCodexReplSlashCommand(args: {
                 throw new Error(getCodexReplResumeMissingCwdMessage())
               })()
 
-        args.session.replaceConversationState(resumeState)
+        args.session.replaceConversationState(resumeResolution.state)
+        args.session.setGlobalFallbackStatusLine(
+          resumeResolution.globalFallback,
+        )
         args.persistState(args.session.state)
-        args.writeLine(formatCodexReplResumeSuccessMessage(args.session.state))
+        args.writeLine(
+          formatCodexReplResumeSuccessMessage({
+            state: args.session.state,
+            sourceCwd: resumeResolution.sourceCwd,
+          }),
+        )
       } catch (error) {
         args.writeError(formatCodexReplError(error))
       }
@@ -1353,6 +1391,7 @@ export class CodexReplSession {
   private readonly instructions?: string
   private readonly config: CodexRuntimeConfig
   private conversationState: CodexReplConversationState
+  private globalFallbackStatusLine?: string
   private readonly discoveredToolNames: Set<string>
   private readonly discoveredToolSignatures: Map<string, string>
 
@@ -1413,6 +1452,17 @@ export class CodexReplSession {
     return { ...this.conversationState }
   }
 
+  setGlobalFallbackStatusLine(
+    fallback?: {
+      sourceCwd: string
+      requestedCwd: string
+    },
+  ): void {
+    this.globalFallbackStatusLine = fallback
+      ? buildCodexReplGlobalFallbackStatusLine(fallback)
+      : undefined
+  }
+
   replaceConversationState(
     state: CodexReplConversationState | CodexReplPersistedState,
   ): void {
@@ -1452,6 +1502,7 @@ export class CodexReplSession {
 
     this.discoveredToolNames.clear()
     this.discoveredToolSignatures.clear()
+    this.globalFallbackStatusLine = undefined
     this.conversationState = withCodexReplModelMetadata({
       state: {
         providerId: 'codex-repl',
@@ -1480,6 +1531,7 @@ export class CodexReplSession {
       `Session id: ${this.conversationState.stateId ?? 'unavailable'}`,
       `Conversation id: ${this.conversationState.conversationId ?? 'unavailable'}`,
       `Current working directory: ${this.cwd ?? 'unavailable'}`,
+      ...(this.globalFallbackStatusLine ? [this.globalFallbackStatusLine] : []),
       summarizeCodexReplPersistedConversationState(this.conversationState),
       buildCodexReplResumeHint({
         hasCurrentWorkingDirectory,

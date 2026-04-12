@@ -61,6 +61,23 @@ export function buildCodexReplResumeHint(args: {
   return 'Resume hint: complete a Codex turn in this directory, or use /sessions to find another persisted conversation state.'
 }
 
+export function buildCodexReplResumeSourceSuffix(args: {
+  sourceCwd?: string
+}): string {
+  if (!args.sourceCwd) {
+    return ''
+  }
+
+  return ` source-cwd=${args.sourceCwd}`
+}
+
+export function buildCodexReplGlobalFallbackStatusLine(args: {
+  sourceCwd: string
+  requestedCwd: string
+}): string {
+  return `Session source: global-fallback source-cwd=${args.sourceCwd} requested-cwd=${args.requestedCwd}`
+}
+
 function buildCodexSkippedBrokenStateSuffix(
   context: CodexSessionScanContext,
 ): string {

@@ -79,6 +79,7 @@
 - 当同名工具已发现但当前来源签名变化时，会判定为 `stale-discovery` 并重新隐藏，等待下一次重新发现
 - 断连、重连或配置变更不会主动清空已发现工具记录；错误场景下仍会保留已发现状态，后续按当前来源重新判定是否继续暴露
 - 当 Codex API 拒绝当前工具组合时，Codex REPL 会在原错误主句后追加稳定的 `error_code=` 与 `hint=`，便于区分 `remote-mcp + local` 冲突、`local + mcp-bridge` 冲突，以及单一路径不受支持
+- 当前仓库已补一组固定组合矩阵测试，用来锁定 `local`、`mcp-bridge`、`remote-mcp`、`tool-search` 在单独和混合请求下的 source 顺序、错误解释和恢复保态行为
 
 当前 Codex MCP 的执行方式分为两类：
 

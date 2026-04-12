@@ -263,3 +263,142 @@ describe('prepareCodexToolOrchestration', () => {
     )
   })
 })
+
+describe('summarizeCodexRequestTooling matrix', () => {
+  const matrix: Array<{
+    name: string
+    requestTools: Array<any>
+    expectedSources: string[]
+    expectedUsage: {
+      usedMcpTools: boolean
+      usedBridgedMcpTools: boolean
+      usedLocalFunctionTools: boolean
+      usedToolSearch: boolean
+      usedFunctionTools: boolean
+    }
+  }> = [
+    {
+      name: 'local only',
+      requestTools: [{ type: 'function', name: 'Read' }],
+      expectedSources: ['local'],
+      expectedUsage: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: true,
+        usedToolSearch: false,
+        usedFunctionTools: true,
+      },
+    },
+    {
+      name: 'bridge only',
+      requestTools: [{ type: 'function', name: 'mcp__docs__search' }],
+      expectedSources: ['mcp-bridge'],
+      expectedUsage: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: false,
+        usedToolSearch: false,
+        usedFunctionTools: true,
+      },
+    },
+    {
+      name: 'remote only',
+      requestTools: [
+        { type: 'mcp', server_label: 'docs', server_url: 'https://example.com/mcp' },
+      ],
+      expectedSources: ['remote-mcp'],
+      expectedUsage: {
+        usedMcpTools: true,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: false,
+        usedToolSearch: false,
+        usedFunctionTools: false,
+      },
+    },
+    {
+      name: 'tool-search only',
+      requestTools: [{ type: 'function', name: 'ToolSearch' }],
+      expectedSources: ['tool-search'],
+      expectedUsage: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+    },
+    {
+      name: 'local plus tool-search',
+      requestTools: [
+        { type: 'function', name: 'Read' },
+        { type: 'function', name: 'ToolSearch' },
+      ],
+      expectedSources: ['local', 'tool-search'],
+      expectedUsage: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: true,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+    },
+    {
+      name: 'bridge plus tool-search',
+      requestTools: [
+        { type: 'function', name: 'mcp__docs__search' },
+        { type: 'function', name: 'ToolSearch' },
+      ],
+      expectedSources: ['mcp-bridge', 'tool-search'],
+      expectedUsage: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+    },
+    {
+      name: 'remote plus tool-search',
+      requestTools: [
+        { type: 'mcp', server_label: 'docs', server_url: 'https://example.com/mcp' },
+        { type: 'function', name: 'ToolSearch' },
+      ],
+      expectedSources: ['remote-mcp', 'tool-search'],
+      expectedUsage: {
+        usedMcpTools: true,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+    },
+    {
+      name: 'local bridge remote and tool-search',
+      requestTools: [
+        { type: 'function', name: 'Read' },
+        { type: 'function', name: 'mcp__docs__search' },
+        { type: 'mcp', server_label: 'docs', server_url: 'https://example.com/mcp' },
+        { type: 'function', name: 'ToolSearch' },
+      ],
+      expectedSources: ['local', 'mcp-bridge', 'remote-mcp', 'tool-search'],
+      expectedUsage: {
+        usedMcpTools: true,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: true,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+    },
+  ]
+
+  for (const testCase of matrix) {
+    it(`keeps source order stable for ${testCase.name}`, () => {
+      expect(summarizeCodexRequestTooling(testCase.requestTools as any)).toEqual(
+        expect.objectContaining({
+          ...testCase.expectedUsage,
+          sources: testCase.expectedSources,
+        }),
+      )
+    })
+  }
+})

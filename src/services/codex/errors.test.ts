@@ -305,3 +305,169 @@ describe('formatCodexApiError', () => {
     ).toBe('Codex API error (429): Rate limit exceeded')
   })
 })
+
+describe('classifyCodexApiError tooling matrix', () => {
+  const unsupportedToolsBody = {
+    error: {
+      message: 'Unsupported parameter: tools[0].type',
+      param: 'tools[0].type',
+      code: 'unsupported_parameter',
+    },
+  } as const
+
+  const matrix: Array<{
+    name: string
+    args: {
+      usedMcpTools: boolean
+      usedBridgedMcpTools: boolean
+      usedLocalFunctionTools?: boolean
+      usedToolSearch?: boolean
+      usedFunctionTools: boolean
+    }
+    expected: {
+      errorCode: string
+      hint: string
+      requestedSources: string[]
+    }
+  }> = [
+    {
+      name: 'local only',
+      args: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: true,
+        usedToolSearch: false,
+        usedFunctionTools: true,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_LOCAL_FUNCTION_UNSUPPORTED',
+        hint: 'disable-local-tools-or-switch-model',
+        requestedSources: ['local'],
+      },
+    },
+    {
+      name: 'bridge only',
+      args: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: false,
+        usedToolSearch: false,
+        usedFunctionTools: true,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_BRIDGED_MCP_UNSUPPORTED',
+        hint: 'disable-bridge-or-switch-model',
+        requestedSources: ['mcp-bridge'],
+      },
+    },
+    {
+      name: 'remote only',
+      args: {
+        usedMcpTools: true,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: false,
+        usedToolSearch: false,
+        usedFunctionTools: false,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_REMOTE_MCP_UNSUPPORTED',
+        hint: 'disable-remote-mcp-or-switch-model',
+        requestedSources: ['remote-mcp'],
+      },
+    },
+    {
+      name: 'tool-search only',
+      args: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_LOCAL_FUNCTION_UNSUPPORTED',
+        hint: 'disable-local-tools-or-switch-model',
+        requestedSources: ['tool-search'],
+      },
+    },
+    {
+      name: 'local plus tool-search',
+      args: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: true,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_LOCAL_FUNCTION_UNSUPPORTED',
+        hint: 'disable-local-tools-or-switch-model',
+        requestedSources: ['local', 'tool-search'],
+      },
+    },
+    {
+      name: 'bridge plus tool-search',
+      args: {
+        usedMcpTools: false,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_BRIDGED_MCP_UNSUPPORTED',
+        hint: 'disable-bridge-or-switch-model',
+        requestedSources: ['mcp-bridge', 'tool-search'],
+      },
+    },
+    {
+      name: 'remote plus tool-search',
+      args: {
+        usedMcpTools: true,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_CONFLICT_REMOTE_LOCAL',
+        hint: 'disable-remote-mcp-or-local-tools',
+        requestedSources: ['remote-mcp', 'tool-search'],
+      },
+    },
+    {
+      name: 'local bridge remote and tool-search',
+      args: {
+        usedMcpTools: true,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: true,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      },
+      expected: {
+        errorCode: 'CODEX_TOOLING_CONFLICT_REMOTE_LOCAL',
+        hint: 'disable-remote-mcp-or-local-tools',
+        requestedSources: ['local', 'mcp-bridge', 'remote-mcp', 'tool-search'],
+      },
+    },
+  ]
+
+  for (const testCase of matrix) {
+    it(`returns a stable explanation for ${testCase.name}`, () => {
+      expect(
+        classifyCodexApiError({
+          status: 400,
+          body: unsupportedToolsBody,
+          model: 'gpt-5-codex',
+          usedStructuredOutput: false,
+          ...testCase.args,
+        }),
+      ).toEqual(
+        expect.objectContaining({
+          category: 'tooling',
+          ...testCase.expected,
+        }),
+      )
+    })
+  }
+})

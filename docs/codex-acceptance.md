@@ -290,6 +290,26 @@ bun run dev -p --resume <session_id> "Now summarize the main risks"
 - 第二条命令退出码为 `0`
 - 第二条命令能够基于前一次 state 正常续写，而不是当作完全独立的新对话
 
+### 10a. stale pointer 与损坏 state 的恢复路径
+
+准备：
+
+- 先在同一目录下完成两次成功请求，确认生成两个 persisted state。
+- 人工删除最新 state 文件，或把最新 state 文件内容改成非法 JSON，用于模拟 stale pointer / broken state。
+
+执行：
+
+```bash
+bun run dev -p --continue "Follow up on the prior answer"
+```
+
+预期：
+
+- 如果同目录下仍有更早的可用 state，会自动恢复到该 state 继续执行，不要求手工清理 pointer。
+- 如果同目录没有可用 state，但全局仍有其他可用 state，会回退到全局最近可用 state。
+- 只有在所有候选都不可恢复时才会 fail-fast；此时错误文案会保持既有 `Codex provider continue/resume requested ...` 风格，并可附带 `Skipped <n> broken persisted conversation state(s) while scanning recovery candidates.` 诊断后缀。
+- 在 Codex REPL 中执行 `/sessions` 时，若扫描到损坏文件，会显示 `skipped-broken-count=<n>`。
+
 ## 常见报错对照
 
 | 错误文本 | 含义 | 建议处理方式 |
@@ -305,6 +325,7 @@ bun run dev -p --resume <session_id> "Now summarize the main risks"
 | `Codex structured output does not match the provided schema` | 返回的 JSON 没有通过本地 schema 校验 | 调整提示词或 schema |
 | `Codex provider continue requested but no persisted conversation state is available for the current directory.` | 当前目录下没有可恢复的持久化 state | 先完成一次成功请求，或改用有效的 `--resume <state-id>` |
 | `Codex provider resume requested but no persisted conversation state is available.` | 没有找到对应的持久化 state | 检查 `--resume <state-id>` 是否有效 |
+| `Codex provider continue/resume requested ... Skipped <n> broken persisted conversation state(s) while scanning recovery candidates.` | 扫描到了持久化文件，但所有候选都已损坏、版本不兼容或无法解析 | 清理损坏的 state 文件后重试，或改用明确可用的 `--resume <state-id>` |
 | `Codex provider could not find persisted assistant turn ... for --resume-session-at.` | 当前 state 中不存在指定 assistant turn | 使用此前输出中的 assistant `uuid`，或直接从最新 turn 继续 |
 
 ## 回滚方案

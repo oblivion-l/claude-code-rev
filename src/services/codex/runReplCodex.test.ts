@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { z } from 'zod/v4'
@@ -1834,6 +1834,62 @@ describe('createCodexReplSession', () => {
     expect(lines[4]).toContain('- project_a_state cwd=/tmp/project-a')
   })
 
+  it('shows skipped-broken-count for /sessions while keeping valid sessions visible', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'session_good',
+        cwd: '/tmp/project-good',
+        conversationId: 'session_good',
+        lastResponseId: 'resp_good',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/project-good',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'session_broken',
+        cwd: '/tmp/project-broken',
+        conversationId: 'session_broken',
+        lastResponseId: 'resp_broken',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/project-broken',
+      },
+    )
+
+    writeFileSync(
+      join(configDir, 'codex-repl', 'states', 'session_broken.json'),
+      '{invalid json',
+      'utf8',
+    )
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession(),
+      prompt: '/sessions',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toContain('skipped-broken-count=1')
+    expect(lines).toContainEqual(
+      expect.stringContaining('- session_good cwd=/tmp/project-good'),
+    )
+  })
+
   it('fails fast for invalid /sessions pagination input', async () => {
     configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
@@ -1980,6 +2036,65 @@ describe('createCodexReplSession', () => {
     ])
   })
 
+  it('repairs stale pointers for /resume by scanning other usable states in the cwd', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'resume_state_old',
+        cwd: '/tmp/resume-repair',
+        conversationId: 'resume_state_old',
+        lastResponseId: 'resp_resume_old',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/resume-repair',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'resume_state_broken',
+        cwd: '/tmp/resume-repair',
+        conversationId: 'resume_state_broken',
+        lastResponseId: 'resp_resume_broken',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/resume-repair',
+      },
+    )
+
+    writeFileSync(
+      join(configDir, 'codex-repl', 'states', 'resume_state_broken.json'),
+      '{invalid json',
+      'utf8',
+    )
+
+    const session = createCodexReplSession({
+      cwd: '/tmp/resume-repair',
+    })
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: '/resume',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toEqual([
+      'Resumed persisted conversation state resume_state_old (last response resp_resume_old).',
+    ])
+    expect(session.state.stateId).toBe('resume_state_old')
+  })
+
   it('surfaces readable resume errors for /resume', async () => {
     configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir
@@ -2001,6 +2116,49 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(errors).toEqual([
       'Codex REPL resume requested but no persisted conversation state is available.',
+    ])
+  })
+
+  it('fails fast with aligned diagnostics when every scanned /resume state is broken', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'resume_state_only_broken',
+        cwd: '/tmp/resume-only-broken',
+        conversationId: 'resume_state_only_broken',
+        lastResponseId: 'resp_resume_only_broken',
+      },
+      {
+        cwd: '/tmp/resume-only-broken',
+      },
+    )
+
+    writeFileSync(
+      join(configDir, 'codex-repl', 'states', 'resume_state_only_broken.json'),
+      '{invalid json',
+      'utf8',
+    )
+
+    const errors: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession({
+        cwd: '/tmp/resume-only-broken',
+      }),
+      prompt: '/resume',
+      writeError: message => errors.push(message),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(errors).toEqual([
+      'Codex REPL resume requested but no persisted conversation state is available. Skipped 1 broken persisted conversation state while scanning recovery candidates.',
     ])
   })
 

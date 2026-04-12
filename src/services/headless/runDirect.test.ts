@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { getHeadlessConversationState } from './conversationState.js'
+import { setHeadlessConversationState } from './conversationState.js'
 import { runDirectHeadlessProvider } from './runDirect.js'
 import type { HeadlessProvider } from './provider.js'
 
@@ -113,6 +114,134 @@ describe('runDirectHeadlessProvider', () => {
         type: 'result',
         subtype: 'error_during_execution',
         error_code: 'HEADLESS_PROVIDER_INVALID_INPUT',
+      }),
+    )
+
+    rmSync(stateDir, { recursive: true, force: true })
+  })
+
+  it('repairs stale pointers for continue by scanning another usable persisted state', async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'headless-direct-'))
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = stateDir
+
+    const cwd = '/tmp/headless-repair'
+    setHeadlessConversationState(
+      'codex',
+      {
+        providerId: 'codex',
+        stateId: 'state-old',
+        conversationId: 'conv-old',
+        lastResponseId: 'resp-old',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+      },
+      {
+        cwd,
+      },
+    )
+    setHeadlessConversationState(
+      'codex',
+      {
+        providerId: 'codex',
+        stateId: 'state-broken',
+        conversationId: 'conv-broken',
+        lastResponseId: 'resp-broken',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd,
+      },
+    )
+
+    writeFileSync(
+      join(stateDir, 'codex', 'states', 'state-broken.json'),
+      '{invalid json',
+      'utf8',
+    )
+
+    const provider = createProvider({
+      async run(args) {
+        expect(args.conversationState?.stateId).toBe('state-old')
+        expect(args.conversationState?.lastResponseId).toBe('resp-old')
+        return {
+          exitCode: 0,
+        }
+      },
+    })
+
+    const exitCode = await runDirectHeadlessProvider({
+      provider,
+      inputPrompt: 'hello',
+      options: {
+        continue: true,
+      } as any,
+      cwd,
+      structuredIO: {
+        write: async () => {},
+      },
+    })
+
+    expect(exitCode).toBe(0)
+
+    rmSync(stateDir, { recursive: true, force: true })
+  })
+
+  it('fails fast with aligned diagnostics when all scanned continue states are broken', async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'headless-direct-'))
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = stateDir
+
+    const cwd = '/tmp/headless-only-broken'
+    setHeadlessConversationState(
+      'codex',
+      {
+        providerId: 'codex',
+        stateId: 'state-only-broken',
+        conversationId: 'conv-only-broken',
+        lastResponseId: 'resp-only-broken',
+      },
+      {
+        cwd,
+      },
+    )
+
+    writeFileSync(
+      join(stateDir, 'codex', 'states', 'state-only-broken.json'),
+      '{invalid json',
+      'utf8',
+    )
+
+    const writes: unknown[] = []
+    const provider = createProvider({
+      async run() {
+        throw new Error('provider should not run when all states are broken')
+      },
+    })
+
+    const exitCode = await runDirectHeadlessProvider({
+      provider,
+      inputPrompt: 'hello',
+      options: {
+        continue: true,
+        outputFormat: 'stream-json',
+      } as any,
+      cwd,
+      structuredIO: {
+        write: async message => {
+          writes.push(message)
+        },
+      },
+    })
+
+    expect(exitCode).toBe(1)
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        type: 'result',
+        subtype: 'error_during_execution',
+        error_code: 'HEADLESS_PROVIDER_INVALID_INPUT',
+        validation_error:
+          'Codex provider continue requested but no persisted conversation state is available for the current directory. Skipped 1 broken persisted conversation state while scanning recovery candidates.',
+        errors: [
+          'Codex provider continue requested but no persisted conversation state is available for the current directory. Skipped 1 broken persisted conversation state while scanning recovery candidates.',
+        ],
       }),
     )
 

@@ -23,6 +23,23 @@ describe('sessionText', () => {
     )
   })
 
+  it('appends broken-state scan diagnostics when recovery candidates were skipped', () => {
+    expect(
+      buildCodexContinueMissingStateMessage('provider', {
+        skippedBrokenCount: 2,
+      }),
+    ).toBe(
+      'Codex provider continue requested but no persisted conversation state is available for the current directory. Skipped 2 broken persisted conversation states while scanning recovery candidates.',
+    )
+    expect(
+      buildCodexResumeMissingStateMessage('repl', {
+        skippedBrokenCount: 1,
+      }),
+    ).toBe(
+      'Codex REPL resume requested but no persisted conversation state is available. Skipped 1 broken persisted conversation state while scanning recovery candidates.',
+    )
+  })
+
   it('builds aligned resume-session-at missing-turn messages', () => {
     expect(
       buildCodexResumeSessionAtMissingTurnMessage({

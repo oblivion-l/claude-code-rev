@@ -192,7 +192,7 @@ import { OAuthService } from 'src/services/oauth/index.js'
 import { installOAuthTokens } from 'src/cli/handlers/auth.js'
 import {
   HeadlessConversationStateError,
-  getHeadlessConversationState,
+  resolvePersistedHeadlessConversationStateWithRepair,
   setHeadlessConversationState,
 } from 'src/services/headless/conversationState.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
@@ -201,6 +201,10 @@ import {
   getHeadlessProviderInvalidInputCode,
   writeHeadlessProviderError,
 } from 'src/services/headless/errors.js'
+import {
+  buildCodexContinueMissingStateMessage,
+  buildCodexResumeMissingStateMessage,
+} from 'src/services/codex/sessionText.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
 import { AwsAuthStatusManager } from 'src/utils/awsAuthStatusManager.js'
 import type { HookEvent } from 'src/entrypoints/agentSdkTypes.js'
@@ -845,22 +849,29 @@ export async function runHeadless(
   if (headlessProvider) {
     registerProcessOutputErrorHandlers()
     let conversationState = null
+    let persistedStateDiagnostics: {
+      skippedBrokenCount: number
+    } | null = null
 
     try {
       if (typeof options.resume === 'string') {
-        conversationState = getHeadlessConversationState(
+        const resolution = resolvePersistedHeadlessConversationStateWithRepair(
           headlessProvider.metadata.id,
           {
             stateId: options.resume,
           },
         )
+        conversationState = resolution.state
+        persistedStateDiagnostics = resolution.diagnostics
       } else if (options.continue || options.resume) {
-        conversationState = getHeadlessConversationState(
+        const resolution = resolvePersistedHeadlessConversationStateWithRepair(
           headlessProvider.metadata.id,
           {
             cwd: process.cwd(),
           },
         )
+        conversationState = resolution.state
+        persistedStateDiagnostics = resolution.diagnostics
       }
     } catch (error) {
       if (error instanceof HeadlessConversationStateError) {
@@ -875,6 +886,29 @@ export async function runHeadless(
       }
 
       throw error
+    }
+
+    if (
+      headlessProvider.metadata.id === 'codex' &&
+      !conversationState &&
+      persistedStateDiagnostics?.skippedBrokenCount &&
+      (options.continue || options.resume === true)
+    ) {
+      const message = options.continue
+        ? buildCodexContinueMissingStateMessage('provider', {
+            skippedBrokenCount: persistedStateDiagnostics.skippedBrokenCount,
+          })
+        : buildCodexResumeMissingStateMessage('provider', {
+            skippedBrokenCount: persistedStateDiagnostics.skippedBrokenCount,
+          })
+      await writeHeadlessProviderError(
+        structuredIO,
+        options.outputFormat,
+        message,
+        getHeadlessProviderInvalidInputCode(),
+      )
+      gracefulShutdownSync(1)
+      return
     }
 
     const { exitCode, conversationState: nextConversationState } =

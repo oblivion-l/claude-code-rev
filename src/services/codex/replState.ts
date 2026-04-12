@@ -1,4 +1,3 @@
-import { existsSync, readdirSync } from 'fs'
 import { homedir } from 'os'
 import { join } from 'path'
 import {
@@ -9,6 +8,8 @@ import {
   clearHeadlessConversationState,
   getHeadlessConversationState,
   HeadlessConversationStateError,
+  listPersistedHeadlessConversationStates,
+  resolvePersistedHeadlessConversationStateWithRepair,
   setHeadlessConversationState,
 } from 'src/services/headless/conversationState.js'
 
@@ -19,6 +20,15 @@ export type CodexReplPersistedTurnState = HeadlessConversationTurnState
 export type CodexReplPersistedStateRecord = {
   state: CodexReplPersistedState
   filePath: string
+}
+
+export type CodexReplPersistedStateResolution = ReturnType<
+  typeof resolvePersistedHeadlessConversationStateWithRepair
+>
+
+export type CodexReplPersistedStateList = {
+  records: CodexReplPersistedStateRecord[]
+  skippedBrokenCount: number
 }
 
 export {
@@ -47,6 +57,16 @@ export function getCodexReplState(options: {
   return getHeadlessConversationState(CODEX_REPL_STATE_PROVIDER_ID, options)
 }
 
+export function resolveCodexReplStateWithRepair(options: {
+  cwd?: string
+  stateId?: string
+}): CodexReplPersistedStateResolution {
+  return resolvePersistedHeadlessConversationStateWithRepair(
+    CODEX_REPL_STATE_PROVIDER_ID,
+    options,
+  )
+}
+
 export function setCodexReplState(
   state: CodexReplPersistedState,
   options: {
@@ -69,25 +89,22 @@ export function clearCodexReplState(options: {
 
 export function listCodexReplStates(options: {
   limit?: number
-} = {}): CodexReplPersistedStateRecord[] {
-  const statesDir = getCodexReplStatesDir()
-  if (!existsSync(statesDir)) {
-    return []
-  }
-
+} = {}): CodexReplPersistedStateList {
   const limit = Math.max(options.limit ?? 10, 0)
   if (limit === 0) {
-    return []
+    return {
+      records: [],
+      skippedBrokenCount: 0,
+    }
   }
 
-  const records = readdirSync(statesDir)
-    .filter(entry => entry.endsWith('.json'))
-    .map(entry => entry.slice(0, -'.json'.length))
-    .map(stateId => ({
-      state: getCodexReplState({
-        stateId,
-      })!,
-      filePath: getCodexReplStateFilePath(stateId),
+  const { states, diagnostics } = listPersistedHeadlessConversationStates(
+    CODEX_REPL_STATE_PROVIDER_ID,
+  )
+  const records = states
+    .map(state => ({
+      state,
+      filePath: getCodexReplStateFilePath(state.stateId!),
     }))
     .sort((left, right) => {
       const leftTime =
@@ -102,5 +119,8 @@ export function listCodexReplStates(options: {
       return (right.state.stateId ?? '').localeCompare(left.state.stateId ?? '')
     })
 
-  return records.slice(0, limit)
+  return {
+    records: records.slice(0, limit),
+    skippedBrokenCount: diagnostics.skippedBrokenCount,
+  }
 }

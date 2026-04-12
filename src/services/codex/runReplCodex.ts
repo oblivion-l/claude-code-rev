@@ -52,6 +52,7 @@ import {
   listCodexReplStates,
   type CodexReplPersistedState,
   getCodexReplState,
+  resolveCodexReplStateWithRepair,
   setCodexReplState,
 } from './replState.js'
 import {
@@ -270,6 +271,14 @@ function getCodexReplResumeMissingCwdMessage(): string {
 
 function getCodexReplResumeMissingStateMessage(): string {
   return buildCodexResumeMissingStateMessage('repl')
+}
+
+function getCodexReplResumeMissingStateMessageWithDiagnostics(args: {
+  skippedBrokenCount?: number
+}): string {
+  return buildCodexResumeMissingStateMessage('repl', {
+    skippedBrokenCount: args.skippedBrokenCount,
+  })
 }
 
 function getCodexReplResumeSessionAtMissingTurnMessage(
@@ -599,35 +608,27 @@ function resolveCodexReplPersistedStateForResume(options: {
   cwd?: string
   stateId?: string
 }): CodexReplPersistedState {
-  let state: CodexReplPersistedState | null = null
-
   try {
-    state = options.stateId
-      ? getCodexReplState({
-          stateId: options.stateId,
-        })
-      : options.cwd
-        ? getCodexReplState({
-            cwd: options.cwd,
-          })
-        : null
+    const resolution = resolveCodexReplStateWithRepair(options)
+    const state = resolution.state
+
+    if (!state?.lastResponseId) {
+      throw new Error(
+        getCodexReplResumeMissingStateMessageWithDiagnostics({
+          skippedBrokenCount: resolution.diagnostics.skippedBrokenCount,
+        }),
+      )
+    }
+
+    return state
   } catch (error) {
     const message = errorMessage(error)
-    if (
-      message.startsWith('No persisted codex-repl conversation state was found') ||
-      message.startsWith('Persisted codex-repl latest-conversation pointer')
-    ) {
+    if (message.startsWith('No persisted codex-repl conversation state was found')) {
       throw new Error(getCodexReplResumeMissingStateMessage())
     }
 
     throw error
   }
-
-  if (!state?.lastResponseId) {
-    throw new Error(getCodexReplResumeMissingStateMessage())
-  }
-
-  return state
 }
 
 function summarizeCodexReplPersistedConversationState(
@@ -820,7 +821,7 @@ function parseCodexReplSessionsCommandOptions(
 }
 
 function matchesCodexReplSessionsQuery(args: {
-  record: ReturnType<typeof listCodexReplStates>[number]
+  record: ReturnType<typeof listCodexReplStates>['records'][number]
   query?: string
 }): boolean {
   const query = args.query?.trim().toLowerCase()
@@ -843,7 +844,7 @@ function buildCodexReplSessionsView(args: {
   options: CodexReplSessionsCommandOptions
   currentCwd?: string
 }): CodexReplSessionsView {
-  const allRecords = listCodexReplStates({
+  const { records: allRecords, skippedBrokenCount } = listCodexReplStates({
     limit: Number.MAX_SAFE_INTEGER,
   })
 
@@ -915,6 +916,10 @@ function buildCodexReplSessionsView(args: {
     `Current directory priority: ${currentCwdPriorityApplied ? `applied (${args.currentCwd})` : 'not applied'}`,
     `Filters: provider=${args.options.provider}${args.options.cwd ? ` cwd=${args.options.cwd}` : ''}${args.options.query ? ` query=${args.options.query}` : ''}`,
   ]
+
+  if (skippedBrokenCount > 0) {
+    lines.push(`skipped-broken-count=${skippedBrokenCount}`)
+  }
 
   if (totalRecords === 0) {
     lines.push('No persisted Codex REPL sessions matched the current filters.')

@@ -282,6 +282,7 @@ bun run dev
   - 列出最近持久化的 Codex REPL 会话，包含 state id、cwd、最近保存时间和 model。
   - 支持 `--cwd <path>`、`--provider codex|all`、`--query <keyword>`、`--page <n>`、`--page-size <n>`。
   - 默认按当前目录优先排序；`--page` 默认 `1`，`--page-size` 默认 `10`，最大 `50`。
+  - 当扫描到损坏的 state 文件时，会跳过这些文件继续展示可用结果，并额外输出 `skipped-broken-count=<n>`。
 - `/status`
   - 查看当前 provider、model、base URL、session id、当前目录、conversation state、state 文件路径、最后保存时间，以及 MCP 连接状态。
   - 对每个 MCP bridge server 额外显示 `scope/plugin` 来源、目标端点（`command` 或 `endpoint`）、连接后 server info 与 capabilities，失败时统一输出 `reason=...`。
@@ -404,6 +405,9 @@ codex> /exit
 - `--continue` 会按当前工作目录加载最近一次成功的 Codex headless state
 - `--resume <state-id>` 会按显式 state id 加载持久化 state
 - `--resume-session-at` 会在持久化的 assistant turn history 中查找目标 turn，并从该 turn 对应的 response id 继续
+- 读取 persisted state 时会做按需扫描与懒修复：优先恢复当前 cwd 最近可用 state，其次回退到全局最近可用 state
+- 如果 latest pointer 已失效或指向损坏 state，会自动清理并重建到当前可用候选
+- 扫描过程中遇到损坏 state 会跳过，不会阻断整个恢复流程；只有在所有候选都不可恢复时才会 fail-fast
 - 当前默认持久化目录为 `~/.claude/headless-provider-state`
 - 如需定向覆盖，可设置 `CLAUDE_CODE_HEADLESS_STATE_DIR`
 
@@ -412,6 +416,7 @@ codex> /exit
 - `/resume` 会按当前工作目录查找最近一次持久化的 Codex REPL state
 - `/resume <state-id>` 会按显式 state id 加载持久化 state
 - `/resume` 与 `/resume <state-id>` 的成功/失败文案已统一，便于脚本化判断
+- `/resume` 会复用与 headless 相同的扫描修复逻辑：stale pointer 会自动修复，损坏 state 会跳过并继续尝试其他候选
 - 若没有可用 state，会直接返回清晰错误，不会静默新建会话
 - `/status` 会使用与 headless 对齐的 wording 提示当前目录是否已有可继续的 persisted conversation state
 - `/status` 会追加 `Resume hint:`，在“当前目录已有 state”、“当前目录暂无 state”、“当前没有 cwd”三种情况下分别给出下一步建议
@@ -425,6 +430,7 @@ codex> /exit
 - `/sessions --cwd <path>` 会按 cwd 过滤结果
 - `/sessions --query <keyword>` 会匹配 `state-id`、`cwd` 和 `model`
 - `/sessions --provider all` 当前与 `codex` 结果相同；`anthropic` 暂未接入 Codex REPL，会直接 fail-fast
+- `/sessions` 在扫描到损坏 state 时会追加 `skipped-broken-count=<n>`，用于提示有多少持久化文件被跳过
 
 ## 常见错误
 

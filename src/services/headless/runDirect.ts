@@ -3,7 +3,8 @@ import { registerProcessOutputErrorHandlers, writeToStdout } from 'src/utils/pro
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import {
   HeadlessConversationStateError,
-  getHeadlessConversationState,
+  type PersistedHeadlessConversationStateDiagnostics,
+  resolvePersistedHeadlessConversationStateWithRepair,
   setHeadlessConversationState,
 } from './conversationState.js'
 import {
@@ -15,6 +16,10 @@ import type {
   HeadlessProviderOptions,
   HeadlessProviderRuntime,
 } from './provider.js'
+import {
+  buildCodexContinueMissingStateMessage,
+  buildCodexResumeMissingStateMessage,
+} from '../codex/sessionText.js'
 
 type DirectStructuredIO = Pick<StructuredIO, 'write'>
 
@@ -41,22 +46,28 @@ export async function runDirectHeadlessProvider(args: {
     createDirectStructuredIO()) as StructuredIO
 
   let conversationState = null
+  let persistedStateDiagnostics: PersistedHeadlessConversationStateDiagnostics | null =
+    null
 
   try {
     if (typeof args.options.resume === 'string') {
-      conversationState = getHeadlessConversationState(
+      const resolution = resolvePersistedHeadlessConversationStateWithRepair(
         args.provider.metadata.id,
         {
           stateId: args.options.resume,
         },
       )
+      conversationState = resolution.state
+      persistedStateDiagnostics = resolution.diagnostics
     } else if (args.options.continue || args.options.resume) {
-      conversationState = getHeadlessConversationState(
+      const resolution = resolvePersistedHeadlessConversationStateWithRepair(
         args.provider.metadata.id,
         {
           cwd,
         },
       )
+      conversationState = resolution.state
+      persistedStateDiagnostics = resolution.diagnostics
     }
   } catch (error) {
     if (error instanceof HeadlessConversationStateError) {
@@ -70,6 +81,28 @@ export async function runDirectHeadlessProvider(args: {
     }
 
     throw error
+  }
+
+  if (
+    args.provider.metadata.id === 'codex' &&
+    !conversationState &&
+    persistedStateDiagnostics?.skippedBrokenCount &&
+    (args.options.continue || args.options.resume === true)
+  ) {
+    const message = args.options.continue
+      ? buildCodexContinueMissingStateMessage('provider', {
+          skippedBrokenCount: persistedStateDiagnostics.skippedBrokenCount,
+        })
+      : buildCodexResumeMissingStateMessage('provider', {
+          skippedBrokenCount: persistedStateDiagnostics.skippedBrokenCount,
+        })
+    await writeHeadlessProviderError(
+      structuredIO,
+      args.options.outputFormat,
+      message,
+      getHeadlessProviderInvalidInputCode(),
+    )
+    return 1
   }
 
   const { exitCode, conversationState: nextConversationState } =

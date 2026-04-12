@@ -2,6 +2,7 @@ import { randomUUID, createHash } from 'crypto'
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -56,6 +57,26 @@ type ClearHeadlessConversationStateOptions = {
   stateId?: string
 }
 
+export type PersistedHeadlessConversationStateDiagnostics = {
+  skippedBrokenCount: number
+  repairedPointer: boolean
+  recoveredFromScan: boolean
+  usedGlobalFallback: boolean
+}
+
+export type PersistedHeadlessConversationStateResolution = {
+  state: HeadlessConversationState | null
+  diagnostics: PersistedHeadlessConversationStateDiagnostics
+}
+
+export type PersistedHeadlessConversationStateList = {
+  states: HeadlessConversationState[]
+  diagnostics: Pick<
+    PersistedHeadlessConversationStateDiagnostics,
+    'skippedBrokenCount'
+  >
+}
+
 function getHeadlessConversationStateRoot(): string {
   return (
     process.env.CLAUDE_CODE_HEADLESS_STATE_DIR ??
@@ -89,6 +110,15 @@ function getStateFilePath(providerId: string, stateId: string): string {
 
 function getPointerFilePath(providerId: string, cwd: string): string {
   return join(getProviderPointersDir(providerId), `${hashCwd(cwd)}.json`)
+}
+
+function createPersistedStateDiagnostics(): PersistedHeadlessConversationStateDiagnostics {
+  return {
+    skippedBrokenCount: 0,
+    repairedPointer: false,
+    recoveredFromScan: false,
+    usedGlobalFallback: false,
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -330,6 +360,157 @@ export function getHeadlessConversationState(
   return inMemoryState
 }
 
+function listPersistedStates(
+  providerId: string,
+): PersistedHeadlessConversationStateList {
+  const statesDir = getProviderStatesDir(providerId)
+  if (!existsSync(statesDir)) {
+    return {
+      states: [],
+      diagnostics: {
+        skippedBrokenCount: 0,
+      },
+    }
+  }
+
+  const states: HeadlessConversationState[] = []
+  let skippedBrokenCount = 0
+
+  for (const entry of readdirSync(statesDir)) {
+    if (!entry.endsWith('.json')) {
+      continue
+    }
+
+    const stateId = entry.slice(0, -'.json'.length)
+    try {
+      states.push(loadPersistedStateById(providerId, stateId))
+    } catch (error) {
+      if (error instanceof HeadlessConversationStateError) {
+        skippedBrokenCount += 1
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  states.sort((left, right) => {
+    const leftTime =
+      Date.parse(left.updatedAt ?? left.createdAt ?? '') || 0
+    const rightTime =
+      Date.parse(right.updatedAt ?? right.createdAt ?? '') || 0
+
+    if (leftTime !== rightTime) {
+      return rightTime - leftTime
+    }
+
+    return (right.stateId ?? '').localeCompare(left.stateId ?? '')
+  })
+
+  return {
+    states,
+    diagnostics: {
+      skippedBrokenCount,
+    },
+  }
+}
+
+function setPointerForRecoveredState(args: {
+  providerId: string
+  cwd: string
+  stateId: string
+  updatedAt?: string
+}): void {
+  ensureDir(getProviderPointersDir(args.providerId))
+  const pointer: HeadlessConversationStatePointer = {
+    version: HEADLESS_CONVERSATION_STATE_VERSION,
+    providerId: args.providerId,
+    stateId: args.stateId,
+    cwd: args.cwd,
+    updatedAt: args.updatedAt ?? new Date().toISOString(),
+  }
+  writeFileSync(
+    getPointerFilePath(args.providerId, args.cwd),
+    JSON.stringify(pointer, null, 2) + '\n',
+    'utf8',
+  )
+}
+
+export function listPersistedHeadlessConversationStates(
+  providerId: string,
+): PersistedHeadlessConversationStateList {
+  return listPersistedStates(providerId)
+}
+
+export function resolvePersistedHeadlessConversationStateWithRepair(
+  providerId: string,
+  options: GetHeadlessConversationStateOptions = {},
+): PersistedHeadlessConversationStateResolution {
+  const diagnostics = createPersistedStateDiagnostics()
+
+  if (options.stateId) {
+    return {
+      state: loadPersistedStateById(providerId, options.stateId),
+      diagnostics,
+    }
+  }
+
+  if (!options.cwd) {
+    return {
+      state: null,
+      diagnostics,
+    }
+  }
+
+  const pointerFilePath = getPointerFilePath(providerId, options.cwd)
+  if (existsSync(pointerFilePath)) {
+    try {
+      const pointer = parsePointer(providerId, readFileSync(pointerFilePath, 'utf8'))
+      const state = loadPersistedStateById(providerId, pointer.stateId)
+      conversationStateStore.set(providerId, state)
+      return {
+        state,
+        diagnostics,
+      }
+    } catch (error) {
+      if (error instanceof HeadlessConversationStateError) {
+        rmSync(pointerFilePath, { force: true })
+        diagnostics.repairedPointer = true
+      } else {
+        throw error
+      }
+    }
+  }
+
+  const { states, diagnostics: listDiagnostics } = listPersistedStates(providerId)
+  diagnostics.skippedBrokenCount = listDiagnostics.skippedBrokenCount
+
+  const sameCwdState =
+    states.find(state => state.cwd === options.cwd) ?? null
+  const recoveredState = sameCwdState ?? states[0] ?? null
+  if (!recoveredState) {
+    return {
+      state: null,
+      diagnostics,
+    }
+  }
+
+  diagnostics.recoveredFromScan = true
+  diagnostics.usedGlobalFallback = recoveredState.cwd !== options.cwd
+  setPointerForRecoveredState({
+    providerId,
+    cwd: options.cwd,
+    stateId: recoveredState.stateId!,
+    updatedAt: recoveredState.updatedAt,
+  })
+  conversationStateStore.set(providerId, recoveredState)
+
+  return {
+    state: recoveredState,
+    diagnostics,
+  }
+}
+
 export function setHeadlessConversationState(
   providerId: string,
   state: HeadlessConversationState,
@@ -351,19 +532,12 @@ export function setHeadlessConversationState(
   )
 
   if (normalizedState.cwd) {
-    ensureDir(getProviderPointersDir(providerId))
-    const pointer: HeadlessConversationStatePointer = {
-      version: HEADLESS_CONVERSATION_STATE_VERSION,
+    setPointerForRecoveredState({
       providerId,
-      stateId: normalizedState.stateId!,
       cwd: normalizedState.cwd,
-      updatedAt: normalizedState.updatedAt!,
-    }
-    writeFileSync(
-      getPointerFilePath(providerId, normalizedState.cwd),
-      JSON.stringify(pointer, null, 2) + '\n',
-      'utf8',
-    )
+      stateId: normalizedState.stateId!,
+      updatedAt: normalizedState.updatedAt,
+    })
   }
 
   return normalizedState

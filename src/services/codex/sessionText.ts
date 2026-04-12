@@ -1,5 +1,9 @@
 export type CodexSessionSurface = 'provider' | 'repl'
 
+type CodexSessionScanContext = {
+  skippedBrokenCount?: number
+}
+
 function getCodexSessionDisplayName(
   surface: CodexSessionSurface,
 ): string {
@@ -8,14 +12,16 @@ function getCodexSessionDisplayName(
 
 export function buildCodexContinueMissingStateMessage(
   surface: CodexSessionSurface,
+  context: CodexSessionScanContext = {},
 ): string {
-  return `${getCodexSessionDisplayName(surface)} continue requested but no persisted conversation state is available for the current directory.`
+  return `${getCodexSessionDisplayName(surface)} continue requested but no persisted conversation state is available for the current directory.${buildCodexSkippedBrokenStateSuffix(context)}`
 }
 
 export function buildCodexResumeMissingStateMessage(
   surface: CodexSessionSurface,
+  context: CodexSessionScanContext = {},
 ): string {
-  return `${getCodexSessionDisplayName(surface)} resume requested but no persisted conversation state is available.`
+  return `${getCodexSessionDisplayName(surface)} resume requested but no persisted conversation state is available.${buildCodexSkippedBrokenStateSuffix(context)}`
 }
 
 export function buildCodexResumeSessionAtMissingTurnMessage(args: {
@@ -53,4 +59,14 @@ export function buildCodexReplResumeHint(args: {
   }
 
   return 'Resume hint: complete a Codex turn in this directory, or use /sessions to find another persisted conversation state.'
+}
+
+function buildCodexSkippedBrokenStateSuffix(
+  context: CodexSessionScanContext,
+): string {
+  if (!context.skippedBrokenCount || context.skippedBrokenCount < 1) {
+    return ''
+  }
+
+  return ` Skipped ${context.skippedBrokenCount} broken persisted conversation state${context.skippedBrokenCount === 1 ? '' : 's'} while scanning recovery candidates.`
 }

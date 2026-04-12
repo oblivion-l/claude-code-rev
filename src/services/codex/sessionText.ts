@@ -71,11 +71,18 @@ export function buildCodexReplResumeSourceSuffix(args: {
   return ` source-cwd=${args.sourceCwd}`
 }
 
-export function buildCodexReplGlobalFallbackStatusLine(args: {
+export function buildCodexGlobalFallbackStatusLine(args: {
   sourceCwd: string
   requestedCwd: string
 }): string {
   return `Session source: global-fallback source-cwd=${args.sourceCwd} requested-cwd=${args.requestedCwd}`
+}
+
+export function buildCodexReplGlobalFallbackStatusLine(args: {
+  sourceCwd: string
+  requestedCwd: string
+}): string {
+  return buildCodexGlobalFallbackStatusLine(args)
 }
 
 function buildCodexSkippedBrokenStateSuffix(

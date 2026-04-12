@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   buildCodexContinueMissingStateMessage,
+  buildCodexGlobalFallbackStatusLine,
   buildCodexPersistedConversationStateStatus,
   buildCodexReplGlobalFallbackStatusLine,
   buildCodexReplResumeHint,
@@ -121,6 +122,14 @@ describe('sessionText', () => {
         sourceCwd: '/tmp/source-project',
       }),
     ).toBe(' source-cwd=/tmp/source-project')
+    expect(
+      buildCodexGlobalFallbackStatusLine({
+        sourceCwd: '/tmp/source-project',
+        requestedCwd: '/tmp/current-project',
+      }),
+    ).toBe(
+      'Session source: global-fallback source-cwd=/tmp/source-project requested-cwd=/tmp/current-project',
+    )
     expect(
       buildCodexReplGlobalFallbackStatusLine({
         sourceCwd: '/tmp/source-project',

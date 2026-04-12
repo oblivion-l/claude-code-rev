@@ -8,6 +8,7 @@ import { runDirectHeadlessProvider } from './runDirect.js'
 import type { HeadlessProvider } from './provider.js'
 
 const originalStateDir = process.env.CLAUDE_CODE_HEADLESS_STATE_DIR
+const originalStderrWrite = process.stderr.write.bind(process.stderr)
 
 function createProvider(
   overrides?: Partial<HeadlessProvider>,
@@ -33,6 +34,7 @@ function createProvider(
 }
 
 afterEach(() => {
+  process.stderr.write = originalStderrWrite
   if (originalStateDir === undefined) {
     delete process.env.CLAUDE_CODE_HEADLESS_STATE_DIR
   } else {
@@ -181,6 +183,115 @@ describe('runDirectHeadlessProvider', () => {
     })
 
     expect(exitCode).toBe(0)
+
+    rmSync(stateDir, { recursive: true, force: true })
+  })
+
+  it('does not emit a cross-directory notice when continue resumes from the same cwd', async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'headless-direct-'))
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = stateDir
+
+    const cwd = '/tmp/headless-same-cwd'
+    setHeadlessConversationState(
+      'codex',
+      {
+        providerId: 'codex',
+        stateId: 'state-same-cwd',
+        conversationId: 'conv-same-cwd',
+        lastResponseId: 'resp-same-cwd',
+      },
+      {
+        cwd,
+      },
+    )
+
+    const stderrWrites: string[] = []
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrWrites.push(String(chunk))
+      return true
+    }) as typeof process.stderr.write
+
+    const provider = createProvider({
+      async run(args) {
+        expect(args.conversationState?.stateId).toBe('state-same-cwd')
+        return {
+          exitCode: 0,
+        }
+      },
+    })
+
+    const exitCode = await runDirectHeadlessProvider({
+      provider,
+      inputPrompt: 'hello',
+      options: {
+        continue: true,
+      } as any,
+      cwd,
+      structuredIO: {
+        write: async () => {},
+      },
+    })
+
+    expect(exitCode).toBe(0)
+    expect(stderrWrites).toEqual([])
+
+    rmSync(stateDir, { recursive: true, force: true })
+  })
+
+  it('emits a transparent stream-json notice when continue falls back to a global session', async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'headless-direct-'))
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = stateDir
+
+    setHeadlessConversationState(
+      'codex',
+      {
+        providerId: 'codex',
+        stateId: 'state-global',
+        conversationId: 'conv-global',
+        lastResponseId: 'resp-global',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/global-headless-repo',
+      },
+    )
+
+    const writes: unknown[] = []
+    const provider = createProvider({
+      async run(args) {
+        expect(args.conversationState?.stateId).toBe('state-global')
+        return {
+          exitCode: 0,
+        }
+      },
+    })
+
+    const exitCode = await runDirectHeadlessProvider({
+      provider,
+      inputPrompt: 'hello',
+      options: {
+        continue: true,
+        outputFormat: 'stream-json',
+      } as any,
+      cwd: '/tmp/current-headless-repo',
+      structuredIO: {
+        write: async message => {
+          writes.push(message)
+        },
+      },
+    })
+
+    expect(exitCode).toBe(0)
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        type: 'system',
+        subtype: 'codex_session_source',
+        message:
+          'Session source: global-fallback source-cwd=/tmp/global-headless-repo requested-cwd=/tmp/current-headless-repo',
+        source_cwd: '/tmp/global-headless-repo',
+        requested_cwd: '/tmp/current-headless-repo',
+      }),
+    )
 
     rmSync(stateDir, { recursive: true, force: true })
   })

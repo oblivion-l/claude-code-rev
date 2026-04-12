@@ -1,4 +1,7 @@
 import type { StructuredIO } from 'src/cli/structuredIO.js'
+import { randomUUID } from 'crypto'
+import { getSessionId } from 'src/bootstrap/state.js'
+import type { StdoutMessage } from 'src/entrypoints/sdk/controlTypes.js'
 import { registerProcessOutputErrorHandlers, writeToStdout } from 'src/utils/process.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
 import {
@@ -18,6 +21,7 @@ import type {
 } from './provider.js'
 import {
   buildCodexContinueMissingStateMessage,
+  buildCodexGlobalFallbackStatusLine,
   buildCodexResumeMissingStateMessage,
 } from '../codex/sessionText.js'
 
@@ -29,6 +33,45 @@ function createDirectStructuredIO(): DirectStructuredIO {
       writeToStdout(jsonStringify(message) + '\n')
     },
   }
+}
+
+function buildCodexGlobalFallbackNoticeEvent(args: {
+  sourceCwd: string
+  requestedCwd: string
+}): StdoutMessage {
+  return {
+    type: 'system',
+    subtype: 'codex_session_source',
+    message: buildCodexGlobalFallbackStatusLine(args),
+    source_cwd: args.sourceCwd,
+    requested_cwd: args.requestedCwd,
+    uuid: randomUUID(),
+    session_id: getSessionId(),
+  } as StdoutMessage
+}
+
+async function writeCodexGlobalFallbackNotice(args: {
+  structuredIO: StructuredIO
+  outputFormat: string | undefined
+  sourceCwd: string
+  requestedCwd: string
+}): Promise<void> {
+  const message = buildCodexGlobalFallbackStatusLine({
+    sourceCwd: args.sourceCwd,
+    requestedCwd: args.requestedCwd,
+  })
+
+  if (args.outputFormat === 'stream-json') {
+    await args.structuredIO.write(
+      buildCodexGlobalFallbackNoticeEvent({
+        sourceCwd: args.sourceCwd,
+        requestedCwd: args.requestedCwd,
+      }),
+    )
+    return
+  }
+
+  process.stderr.write(`${message}\n`)
 }
 
 export async function runDirectHeadlessProvider(args: {
@@ -103,6 +146,21 @@ export async function runDirectHeadlessProvider(args: {
       getHeadlessProviderInvalidInputCode(),
     )
     return 1
+  }
+
+  if (
+    args.provider.metadata.id === 'codex' &&
+    persistedStateDiagnostics?.usedGlobalFallback &&
+    (args.options.continue || args.options.resume === true) &&
+    conversationState?.cwd &&
+    conversationState.cwd !== cwd
+  ) {
+    await writeCodexGlobalFallbackNotice({
+      structuredIO,
+      outputFormat: args.options.outputFormat,
+      sourceCwd: conversationState.cwd,
+      requestedCwd: cwd,
+    })
   }
 
   const { exitCode, conversationState: nextConversationState } =

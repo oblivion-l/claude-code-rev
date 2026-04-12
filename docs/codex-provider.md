@@ -409,6 +409,7 @@ codex> /exit
 - 读取 persisted state 时会做按需扫描与懒修复：优先恢复当前 cwd 最近可用 state，其次回退到全局最近可用 state
 - 如果 latest pointer 已失效或指向损坏 state，会自动清理并重建到当前可用候选
 - 扫描过程中遇到损坏 state 会跳过，不会阻断整个恢复流程；只有在所有候选都不可恢复时才会 fail-fast
+- 当 headless `--continue` / `--resume` 命中非当前 cwd 的全局回退时，会额外输出 `Session source: global-fallback source-cwd=... requested-cwd=...`
 - 当前默认持久化目录为 `~/.claude/headless-provider-state`
 - 如需定向覆盖，可设置 `CLAUDE_CODE_HEADLESS_STATE_DIR`
 

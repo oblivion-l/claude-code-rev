@@ -203,6 +203,7 @@ import {
 } from 'src/services/headless/errors.js'
 import {
   buildCodexContinueMissingStateMessage,
+  buildCodexGlobalFallbackStatusLine,
   buildCodexResumeMissingStateMessage,
 } from 'src/services/codex/sessionText.js'
 import type { HookCallbackMatcher } from 'src/types/hooks.js'
@@ -851,6 +852,7 @@ export async function runHeadless(
     let conversationState = null
     let persistedStateDiagnostics: {
       skippedBrokenCount: number
+      usedGlobalFallback?: boolean
     } | null = null
 
     try {
@@ -909,6 +911,33 @@ export async function runHeadless(
       )
       gracefulShutdownSync(1)
       return
+    }
+
+    if (
+      headlessProvider.metadata.id === 'codex' &&
+      persistedStateDiagnostics?.usedGlobalFallback &&
+      (options.continue || options.resume === true) &&
+      conversationState?.cwd &&
+      conversationState.cwd !== process.cwd()
+    ) {
+      const message = buildCodexGlobalFallbackStatusLine({
+        sourceCwd: conversationState.cwd,
+        requestedCwd: process.cwd(),
+      })
+
+      if (options.outputFormat === 'stream-json') {
+        await structuredIO.write({
+          type: 'system',
+          subtype: 'codex_session_source',
+          message,
+          source_cwd: conversationState.cwd,
+          requested_cwd: process.cwd(),
+          uuid: randomUUID(),
+          session_id: getSessionId(),
+        })
+      } else {
+        process.stderr.write(`${message}\n`)
+      }
     }
 
     const { exitCode, conversationState: nextConversationState } =

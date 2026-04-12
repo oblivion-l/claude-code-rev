@@ -16,6 +16,7 @@
 - 这部分当前主要由模块测试覆盖；如需手工复查，优先看 `src/services/codex/errors.test.ts`、`src/services/codex/orchestration.test.ts`、`src/services/codex/runReplCodex.test.ts`。
 - `/tools` 对 deferred/discovered tool 现在会补 `recovery-state=`，用于快速确认它处于 `pending-discovery`、`stale`、`recovered` 等哪一种恢复阶段。
 - Tooling 组合回归矩阵当前至少锁定 8 组 source 组合，覆盖 `local`、`mcp-bridge`、`remote-mcp`、`tool-search` 的单独与混合请求。
+- MCP 诊断现同时输出 `hint=` 与 `hint-detail=`；其中 `hint-detail` 至少区分 `auth`、`transport`、`endpoint`、`disabled`、`retrying`、`bridge`。
 
 ## 环境准备
 

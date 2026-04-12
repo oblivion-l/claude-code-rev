@@ -303,6 +303,7 @@ bun run dev
   - 每个 function tool 都会显示 `decision=` 与 `selection-reason=`，用于解释它为何被选中或隐藏。
   - 对已发现的 deferred bridge 工具，`/tools` 还会显示 `recovered=true|false`，用于快速判断当前 live source 是否已经回到与已发现签名一致的可用状态。
   - 对 deferred/discovered 工具，`/tools` 还会追加简短的 `recovery-state=`，当前值包括 `pending-discovery`、`stale`、`recovered`、`retained`、`shadowed`、`broker`，用于快速判断它当前处于“等待发现、已失效、已恢复、仅保态或被更高优先级遮蔽”的哪一类恢复阶段。
+  - MCP 诊断在保留 `hint=` 的同时，会补一个更细的 `hint-detail=`，当前最小值集合为 `none`、`auth`、`transport`、`endpoint`、`disabled`、`retrying`、`bridge`。
   - `remote-mcp` 与 `mcp-bridge` 的诊断字段保持同一套键名，便于 grep、日志检索和故障对比。
   - MCP bridge tool 会联动显示所属 `server`、当前 `status`、来源与端点信息，便于定位是 ToolSearch 未发现、bridge 未连通，还是 server 鉴权/配置异常。
   - 当 bridge 侧不可用时，工具行也会附带同样的 `hint=` 字段，方便从 `/tools` 直接判断是认证、连通性还是配置开关问题。
@@ -368,6 +369,8 @@ codex> /exit
   - `status=<connected|failed|disconnected|unavailable>`
   - `capabilities=<csv|none>`
   - `reason=<message|none>`
+  - `hint=<repair-token>`
+  - `hint-detail=<none|auth|transport|endpoint|disabled|retrying|bridge>`
 
 `/tools` 输出重点：
 

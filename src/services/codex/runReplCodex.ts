@@ -394,6 +394,7 @@ type CodexReplDiagnosticFields = {
   capabilities: string
   reason: string
   hint: string
+  hintDetail: string
 }
 
 function getCodexReplMcpTransport(
@@ -453,7 +454,67 @@ function formatCodexReplDiagnosticFields(
     `capabilities=${fields.capabilities}`,
     `reason=${fields.reason}`,
     `hint=${fields.hint}`,
+    `hint-detail=${fields.hintDetail}`,
   ]
+}
+
+function formatCodexReplMcpHintDetail(
+  client?: MCPServerConnection,
+): string {
+  if (!client) {
+    return 'bridge'
+  }
+
+  if (client.type === 'connected') {
+    return 'none'
+  }
+
+  if (client.type === 'needs-auth') {
+    return 'auth'
+  }
+
+  if (client.type === 'pending') {
+    return 'retrying'
+  }
+
+  if (client.type === 'disabled') {
+    return 'disabled'
+  }
+
+  const reason = client.error?.toLowerCase() ?? ''
+  if (
+    reason.includes('auth') ||
+    reason.includes('token') ||
+    reason.includes('oauth') ||
+    reason.includes('credential')
+  ) {
+    return 'auth'
+  }
+
+  if (
+    reason.includes('transport') ||
+    reason.includes('stdio') ||
+    reason.includes('sse') ||
+    reason.includes('ws') ||
+    reason.includes('http')
+  ) {
+    return 'transport'
+  }
+
+  if (
+    reason.includes('endpoint') ||
+    reason.includes('url') ||
+    reason.includes('host') ||
+    reason.includes('dns') ||
+    reason.includes('connect') ||
+    reason.includes('timeout') ||
+    reason.includes('timed out') ||
+    reason.includes('refused')
+  ) {
+    return 'endpoint'
+  }
+
+  return 'endpoint'
 }
 
 function formatCodexReplMcpRepairHint(
@@ -516,6 +577,7 @@ function buildCodexReplBridgeDiagnosticFields(
     capabilities,
     reason,
     hint: formatCodexReplMcpRepairHint(client),
+    hintDetail: formatCodexReplMcpHintDetail(client),
   }
 }
 
@@ -532,6 +594,7 @@ function buildCodexReplRemoteMcpDiagnosticFields(
     capabilities: 'none',
     reason: 'none',
     hint: 'none',
+    hintDetail: 'none',
   }
 }
 
@@ -1105,6 +1168,7 @@ function formatCodexReplFunctionToolLine(args: {
       segments.push(`reason=${diagnostics.reason}`)
     }
     segments.push(`hint=${diagnostics.hint}`)
+    segments.push(`hint-detail=${diagnostics.hintDetail}`)
   }
 
   return `- ${args.visibility.tool.name} [${source}]${segments.length > 0 ? ` ${segments.join(' ')}` : ''}`

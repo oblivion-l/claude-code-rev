@@ -275,6 +275,7 @@ bun run dev
 
 - `/help`
   - 查看当前 Codex REPL 支持的命令清单。
+  - 输出会附带 `/sessions` 与 `/resume` 的最小 usage，便于直接复制参数格式。
 - `/new`
   - 新建一个会话，清空当前上下文，但保留当前 provider 配置、模型和工作目录。
 - `/sessions`
@@ -285,6 +286,7 @@ bun run dev
   - 查看当前 provider、model、base URL、session id、当前目录、conversation state、state 文件路径、最后保存时间，以及 MCP 连接状态。
   - 对每个 MCP bridge server 额外显示 `scope/plugin` 来源、目标端点（`command` 或 `endpoint`）、连接后 server info 与 capabilities，失败时统一输出 `reason=...`。
   - `remote-mcp` 与 `mcp-bridge` 现在都会补齐同一套核心诊断字段：`source`、`server`、`transport`、`scope`、`endpoint`、`status`、`capabilities`、`reason`。
+  - 当当前目录已有或缺少 persisted conversation state 时，`/status` 会直接给出对应的 `Resume hint:`。
 - `/resume`
   - 按当前工作目录加载最近一次持久化的 Codex REPL conversation state。
 - `/resume <state-id>`
@@ -412,6 +414,7 @@ codex> /exit
 - `/resume` 与 `/resume <state-id>` 的成功/失败文案已统一，便于脚本化判断
 - 若没有可用 state，会直接返回清晰错误，不会静默新建会话
 - `/status` 会使用与 headless 对齐的 wording 提示当前目录是否已有可继续的 persisted conversation state
+- `/status` 会追加 `Resume hint:`，在“当前目录已有 state”、“当前目录暂无 state”、“当前没有 cwd”三种情况下分别给出下一步建议
 
 当在 Codex REPL 中使用 `/new` 和 `/sessions` 时：
 

@@ -1054,7 +1054,11 @@ describe('createCodexReplSession', () => {
     expect(lines).toContain(
       '- /sessions [options] List recent persisted conversation states with filtering and pagination',
     )
+    expect(lines).toContain(
+      '  Usage: /sessions [--cwd <path>] [--provider codex|all] [--query <keyword>] [--page <n>] [--page-size <n>]',
+    )
     expect(lines).toContain('- /status Show provider, session, and MCP status')
+    expect(lines).toContain('  Usage: /resume [state-id]')
     expect(lines).toContain('- /exit Exit the REPL')
   })
 
@@ -1145,6 +1149,9 @@ describe('createCodexReplSession', () => {
       'Persisted conversation state: persisted conversation state is available for the current directory.',
     )
     expect(lines).toContain(
+      'Resume hint: use /resume to reload the latest persisted conversation state for the current directory.',
+    )
+    expect(lines).toContain(
       `State file path: ${join(configDir, 'codex-repl', 'states', 'status_state_1.json')}`,
     )
     expect(lines).toContain('Last saved at: not saved yet')
@@ -1222,6 +1229,32 @@ describe('createCodexReplSession', () => {
     })
     expect(remoteLine).toContain('decision=selected')
     expect(remoteLine).toContain('selection-reason=passthrough')
+  })
+
+  it('shows a recovery hint in /status when no persisted state is available for the current directory', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    const lines: string[] = []
+    const outcome = await handleCodexReplPrompt({
+      session: createCodexReplSession({
+        cwd: '/tmp/no-state-project',
+      }),
+      prompt: '/status',
+      writeLine: message => lines.push(message ?? ''),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(lines).toContain(
+      'Persisted conversation state: no persisted conversation state is available for the current directory yet.',
+    )
+    expect(lines).toContain(
+      'Resume hint: complete a Codex turn in this directory, or use /sessions to find another persisted conversation state.',
+    )
   })
 
   it('shows tool visibility and sources for /tools', async () => {

@@ -39,3 +39,18 @@ export function buildCodexPersistedConversationStateStatus(args: {
 
   return 'Persisted conversation state: persisted conversation state is available for the current directory.'
 }
+
+export function buildCodexReplResumeHint(args: {
+  hasCurrentWorkingDirectory: boolean
+  hasPersistedConversationState: boolean
+}): string {
+  if (!args.hasCurrentWorkingDirectory) {
+    return 'Resume hint: use /resume <state-id> with an explicit persisted conversation state id.'
+  }
+
+  if (args.hasPersistedConversationState) {
+    return 'Resume hint: use /resume to reload the latest persisted conversation state for the current directory.'
+  }
+
+  return 'Resume hint: complete a Codex turn in this directory, or use /sessions to find another persisted conversation state.'
+}

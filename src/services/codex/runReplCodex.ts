@@ -57,6 +57,7 @@ import {
 import {
   buildCodexContinueMissingStateMessage,
   buildCodexPersistedConversationStateStatus,
+  buildCodexReplResumeHint,
   buildCodexResumeMissingStateMessage,
   buildCodexResumeSessionAtMissingTurnMessage,
 } from './sessionText.js'
@@ -1067,10 +1068,14 @@ async function handleCodexReplSlashCommand(args: {
       args.writeLine(
         '- /sessions [options] List recent persisted conversation states with filtering and pagination',
       )
+      args.writeLine(
+        `  ${getCodexReplSessionsUsage()}`,
+      )
       args.writeLine('- /status Show provider, session, and MCP status')
       args.writeLine(
         '- /resume [state-id] Load persisted conversation state for the current directory or an explicit state id',
       )
+      args.writeLine('  Usage: /resume [state-id]')
       args.writeLine('- /model Show the current model and API base URL')
       args.writeLine('- /tools Show local, MCP bridge, and remote MCP tool visibility')
       args.writeLine('- /exit Exit the REPL')
@@ -1461,6 +1466,8 @@ export class CodexReplSession {
 
   describeStatusLines(): string[] {
     const historyLength = this.conversationState.history?.length ?? 0
+    const hasCurrentWorkingDirectory = Boolean(this.cwd)
+    const hasPersistedConversationState = Boolean(this.conversationState.lastResponseId)
     const lines = [
       'Provider: Codex',
       `Model: ${this.model}`,
@@ -1469,6 +1476,10 @@ export class CodexReplSession {
       `Conversation id: ${this.conversationState.conversationId ?? 'unavailable'}`,
       `Current working directory: ${this.cwd ?? 'unavailable'}`,
       summarizeCodexReplPersistedConversationState(this.conversationState),
+      buildCodexReplResumeHint({
+        hasCurrentWorkingDirectory,
+        hasPersistedConversationState,
+      }),
       `State file path: ${formatCodexReplStateFilePath(this.conversationState)}`,
       `Last saved at: ${formatCodexReplLastSavedAt(this.conversationState)}`,
       `Assistant turns: ${historyLength}`,

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   buildCodexContinueMissingStateMessage,
   buildCodexPersistedConversationStateStatus,
+  buildCodexReplResumeHint,
   buildCodexResumeMissingStateMessage,
   buildCodexResumeSessionAtMissingTurnMessage,
 } from './sessionText.js'
@@ -65,6 +66,33 @@ describe('sessionText', () => {
       }),
     ).toBe(
       'Persisted conversation state: persisted conversation state is available for the current directory.',
+    )
+  })
+
+  it('builds REPL resume hints for available, missing, and cwd-less states', () => {
+    expect(
+      buildCodexReplResumeHint({
+        hasCurrentWorkingDirectory: false,
+        hasPersistedConversationState: false,
+      }),
+    ).toBe(
+      'Resume hint: use /resume <state-id> with an explicit persisted conversation state id.',
+    )
+    expect(
+      buildCodexReplResumeHint({
+        hasCurrentWorkingDirectory: true,
+        hasPersistedConversationState: false,
+      }),
+    ).toBe(
+      'Resume hint: complete a Codex turn in this directory, or use /sessions to find another persisted conversation state.',
+    )
+    expect(
+      buildCodexReplResumeHint({
+        hasCurrentWorkingDirectory: true,
+        hasPersistedConversationState: true,
+      }),
+    ).toBe(
+      'Resume hint: use /resume to reload the latest persisted conversation state for the current directory.',
     )
   })
 })

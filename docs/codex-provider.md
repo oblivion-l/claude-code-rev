@@ -410,6 +410,7 @@ codex> /exit
 - 如果 latest pointer 已失效或指向损坏 state，会自动清理并重建到当前可用候选
 - 扫描过程中遇到损坏 state 会跳过，不会阻断整个恢复流程；只有在所有候选都不可恢复时才会 fail-fast
 - 当 headless `--continue` / `--resume` 命中非当前 cwd 的全局回退时，会额外输出 `Session source: global-fallback source-cwd=... requested-cwd=...`
+- 在 `--output-format stream-json` 下，这类恢复诊断会以 `system` 事件输出，字段集合固定为：`subtype`、`message`、`source_cwd`、`requested_cwd`、`reason`、`error_code`、`ts`
 - 当前默认持久化目录为 `~/.claude/headless-provider-state`
 - 如需定向覆盖，可设置 `CLAUDE_CODE_HEADLESS_STATE_DIR`
 

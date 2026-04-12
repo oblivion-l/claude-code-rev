@@ -290,8 +290,69 @@ describe('runDirectHeadlessProvider', () => {
           'Session source: global-fallback source-cwd=/tmp/global-headless-repo requested-cwd=/tmp/current-headless-repo',
         source_cwd: '/tmp/global-headless-repo',
         requested_cwd: '/tmp/current-headless-repo',
+        reason: 'global-fallback',
+        error_code: '',
+        ts: expect.any(String),
       }),
     )
+
+    rmSync(stateDir, { recursive: true, force: true })
+  })
+
+  it('emits the same fallback diagnostic to stderr for json output without touching structured output', async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), 'headless-direct-'))
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = stateDir
+
+    setHeadlessConversationState(
+      'codex',
+      {
+        providerId: 'codex',
+        stateId: 'state-global-json',
+        conversationId: 'conv-global-json',
+        lastResponseId: 'resp-global-json',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/global-json-repo',
+      },
+    )
+
+    const stderrWrites: string[] = []
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderrWrites.push(String(chunk))
+      return true
+    }) as typeof process.stderr.write
+
+    const writes: unknown[] = []
+    const provider = createProvider({
+      async run(args) {
+        expect(args.conversationState?.stateId).toBe('state-global-json')
+        return {
+          exitCode: 0,
+        }
+      },
+    })
+
+    const exitCode = await runDirectHeadlessProvider({
+      provider,
+      inputPrompt: 'hello',
+      options: {
+        continue: true,
+        outputFormat: 'json',
+      } as any,
+      cwd: '/tmp/current-json-repo',
+      structuredIO: {
+        write: async message => {
+          writes.push(message)
+        },
+      },
+    })
+
+    expect(exitCode).toBe(0)
+    expect(writes).toEqual([])
+    expect(stderrWrites).toEqual([
+      'Session source: global-fallback source-cwd=/tmp/global-json-repo requested-cwd=/tmp/current-json-repo\n',
+    ])
 
     rmSync(stateDir, { recursive: true, force: true })
   })

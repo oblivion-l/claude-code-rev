@@ -27,6 +27,16 @@ import {
 
 type DirectStructuredIO = Pick<StructuredIO, 'write'>
 
+type HeadlessRecoveryDiagnosticEvent = StdoutMessage & {
+  subtype: 'codex_session_source'
+  message: string
+  source_cwd: string
+  requested_cwd: string
+  reason: string
+  error_code: string
+  ts: string
+}
+
 function createDirectStructuredIO(): DirectStructuredIO {
   return {
     async write(message: unknown) {
@@ -38,40 +48,34 @@ function createDirectStructuredIO(): DirectStructuredIO {
 function buildCodexGlobalFallbackNoticeEvent(args: {
   sourceCwd: string
   requestedCwd: string
-}): StdoutMessage {
+}): HeadlessRecoveryDiagnosticEvent {
+  const ts = new Date().toISOString()
+
   return {
     type: 'system',
     subtype: 'codex_session_source',
     message: buildCodexGlobalFallbackStatusLine(args),
     source_cwd: args.sourceCwd,
     requested_cwd: args.requestedCwd,
+    reason: 'global-fallback',
+    error_code: '',
+    ts,
     uuid: randomUUID(),
     session_id: getSessionId(),
-  } as StdoutMessage
+  }
 }
 
-async function writeCodexGlobalFallbackNotice(args: {
+export async function writeHeadlessRecoveryDiagnostic(args: {
   structuredIO: StructuredIO
   outputFormat: string | undefined
-  sourceCwd: string
-  requestedCwd: string
+  event: HeadlessRecoveryDiagnosticEvent
 }): Promise<void> {
-  const message = buildCodexGlobalFallbackStatusLine({
-    sourceCwd: args.sourceCwd,
-    requestedCwd: args.requestedCwd,
-  })
-
   if (args.outputFormat === 'stream-json') {
-    await args.structuredIO.write(
-      buildCodexGlobalFallbackNoticeEvent({
-        sourceCwd: args.sourceCwd,
-        requestedCwd: args.requestedCwd,
-      }),
-    )
+    await args.structuredIO.write(args.event)
     return
   }
 
-  process.stderr.write(`${message}\n`)
+  process.stderr.write(`${args.event.message}\n`)
 }
 
 export async function runDirectHeadlessProvider(args: {
@@ -155,11 +159,13 @@ export async function runDirectHeadlessProvider(args: {
     conversationState?.cwd &&
     conversationState.cwd !== cwd
   ) {
-    await writeCodexGlobalFallbackNotice({
+    await writeHeadlessRecoveryDiagnostic({
       structuredIO,
       outputFormat: args.options.outputFormat,
-      sourceCwd: conversationState.cwd,
-      requestedCwd: cwd,
+      event: buildCodexGlobalFallbackNoticeEvent({
+        sourceCwd: conversationState.cwd,
+        requestedCwd: cwd,
+      }),
     })
   }
 

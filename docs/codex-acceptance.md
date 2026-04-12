@@ -308,6 +308,7 @@ bun run dev -p --continue "Follow up on the prior answer"
 - 如果同目录下仍有更早的可用 state，会自动恢复到该 state 继续执行，不要求手工清理 pointer。
 - 如果同目录没有可用 state，但全局仍有其他可用 state，会回退到全局最近可用 state。
 - 若发生 headless 跨目录回退，会额外输出 `Session source: global-fallback source-cwd=<path> requested-cwd=<path>`，用于说明本次恢复命中的 persisted state 来源。
+- 在 `stream-json` 模式下，上述提示会作为 `system` 事件输出，并固定包含：`subtype/message/source_cwd/requested_cwd/reason/error_code/ts`。
 - 若发生跨目录回退，REPL `/resume` 成功行会显示 `source-cwd=<path>`，后续 `/status` 会额外显示 `Session source: global-fallback ...`。
 - 只有在所有候选都不可恢复时才会 fail-fast；此时错误文案会保持既有 `Codex provider continue/resume requested ...` 风格，并可附带 `Skipped <n> broken persisted conversation state(s) while scanning recovery candidates.` 诊断后缀。
 - 在 Codex REPL 中执行 `/sessions` 时，若扫描到损坏文件，会显示 `skipped-broken-count=<n>`。

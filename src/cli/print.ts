@@ -202,6 +202,9 @@ import {
   writeHeadlessProviderError,
 } from 'src/services/headless/errors.js'
 import {
+  writeHeadlessRecoveryDiagnostic,
+} from 'src/services/headless/runDirect.js'
+import {
   buildCodexContinueMissingStateMessage,
   buildCodexGlobalFallbackStatusLine,
   buildCodexResumeMissingStateMessage,
@@ -925,19 +928,22 @@ export async function runHeadless(
         requestedCwd: process.cwd(),
       })
 
-      if (options.outputFormat === 'stream-json') {
-        await structuredIO.write({
+      await writeHeadlessRecoveryDiagnostic({
+        structuredIO,
+        outputFormat: options.outputFormat,
+        event: {
           type: 'system',
           subtype: 'codex_session_source',
           message,
           source_cwd: conversationState.cwd,
           requested_cwd: process.cwd(),
+          reason: 'global-fallback',
+          error_code: '',
+          ts: new Date().toISOString(),
           uuid: randomUUID(),
           session_id: getSessionId(),
-        })
-      } else {
-        process.stderr.write(`${message}\n`)
-      }
+        },
+      })
     }
 
     const { exitCode, conversationState: nextConversationState } =

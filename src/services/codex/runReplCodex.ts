@@ -331,10 +331,121 @@ function formatCodexReplMcpFailureReason(
   return undefined
 }
 
+type CodexReplDiagnosticSource =
+  | 'local'
+  | 'mcp-bridge'
+  | 'remote-mcp'
+  | 'tool-search'
+
+type CodexReplDiagnosticFields = {
+  source: CodexReplDiagnosticSource
+  server: string
+  transport: string
+  scope: string
+  endpoint: string
+  status: 'connected' | 'failed' | 'disconnected' | 'unavailable'
+  capabilities: string
+  reason: string
+}
+
 function getCodexReplMcpTransport(
   client: MCPServerConnection,
 ): string {
   return client.config.type ?? 'stdio'
+}
+
+function formatCodexReplMcpEndpoint(
+  client: MCPServerConnection,
+): string {
+  switch (client.config.type) {
+    case undefined:
+    case 'stdio':
+      return [client.config.command, ...(client.config.args ?? [])].join(' ')
+    case 'http':
+    case 'sse':
+    case 'ws':
+    case 'sse-ide':
+    case 'ws-ide':
+    case 'claudeai-proxy':
+      return client.config.url
+    case 'sdk':
+      return 'n/a'
+  }
+}
+
+function getCodexReplNormalizedMcpStatus(
+  client?: MCPServerConnection,
+): CodexReplDiagnosticFields['status'] {
+  if (!client) {
+    return 'unavailable'
+  }
+
+  switch (client.type) {
+    case 'connected':
+      return 'connected'
+    case 'failed':
+      return 'failed'
+    case 'pending':
+    case 'needs-auth':
+    case 'disabled':
+      return 'disconnected'
+  }
+}
+
+function formatCodexReplDiagnosticFields(
+  fields: CodexReplDiagnosticFields,
+): string[] {
+  return [
+    `source=${fields.source}`,
+    `server=${fields.server}`,
+    `transport=${fields.transport}`,
+    `scope=${fields.scope}`,
+    `endpoint=${fields.endpoint}`,
+    `status=${fields.status}`,
+    `capabilities=${fields.capabilities}`,
+    `reason=${fields.reason}`,
+  ]
+}
+
+function buildCodexReplBridgeDiagnosticFields(
+  client?: MCPServerConnection,
+): CodexReplDiagnosticFields {
+  const capabilities =
+    client?.type === 'connected'
+      ? formatCodexReplMcpCapabilities(client)
+      : 'none'
+  const reason =
+    client && client.type !== 'connected'
+      ? (formatCodexReplMcpFailureReason(client) ?? 'none')
+      : client
+        ? 'none'
+        : 'bridge server not connected'
+
+  return {
+    source: 'mcp-bridge',
+    server: client?.name ?? 'unknown',
+    transport: client ? getCodexReplMcpTransport(client) : 'unknown',
+    scope: client?.config.scope ?? 'unknown',
+    endpoint: client ? formatCodexReplMcpEndpoint(client) : 'n/a',
+    status: getCodexReplNormalizedMcpStatus(client),
+    capabilities,
+    reason,
+  }
+}
+
+function buildCodexReplRemoteMcpDiagnosticFields(
+  tool: CodexMcpTool,
+): CodexReplDiagnosticFields {
+  return {
+    source: 'remote-mcp',
+    server: tool.server_label,
+    transport: 'unknown',
+    scope: 'unknown',
+    endpoint: tool.server_url,
+    status: 'connected',
+    capabilities: 'none',
+    reason: 'none',
+  }
 }
 
 function formatCodexReplMcpConfigSegments(
@@ -437,15 +548,18 @@ function summarizeCodexReplMcpClients(
         ? undefined
         : formatCodexReplMcpFailureReason(client)
     const segments = formatCodexReplMcpConfigSegments(client)
+    const diagnostics = buildCodexReplBridgeDiagnosticFields(client)
 
     if (client.type === 'connected') {
-      segments.push(`server=${formatCodexReplMcpServerInfo(client)}`)
+      segments.push(`server-info=${formatCodexReplMcpServerInfo(client)}`)
       segments.push(`capabilities=${formatCodexReplMcpCapabilities(client)}`)
     }
 
     if (reason) {
       segments.push(`reason=${reason}`)
     }
+
+    segments.push(...formatCodexReplDiagnosticFields(diagnostics))
 
     lines.push(
       `- ${client.name} [${client.type}] ${segments.join(' ')}`,
@@ -463,8 +577,10 @@ function summarizeCodexReplRemoteMcpTools(mcpTools: CodexMcpTool[]): string[] {
   return [
     `Remote MCP passthrough: ${mcpTools.length} server(s)`,
     ...mcpTools.map(
-      tool =>
-        `- ${tool.server_label} [remote-mcp] decision=selected, selection-reason=passthrough url=${tool.server_url}`,
+      tool => {
+        const diagnostics = buildCodexReplRemoteMcpDiagnosticFields(tool)
+        return `- ${tool.server_label} [remote-mcp] decision=selected, selection-reason=passthrough url=${tool.server_url} ${formatCodexReplDiagnosticFields(diagnostics).join(' ')}`
+      },
     ),
   ]
 }
@@ -820,6 +936,7 @@ function formatCodexReplFunctionToolLine(args: {
         ? 'mcp-bridge'
         : 'local'
   const flags = [
+    `source=${source}`,
     isDeferredTool(args.visibility.tool) ? 'deferred' : null,
     args.visibility.discovered ? 'discovered' : null,
     args.visibility.discovered && isDeferredTool(args.visibility.tool)
@@ -835,6 +952,7 @@ function formatCodexReplFunctionToolLine(args: {
       runtime: args.runtime,
       serverName: args.visibility.tool.mcpInfo?.serverName,
     })
+    const diagnostics = buildCodexReplBridgeDiagnosticFields(client)
 
     segments.push(`server=${args.visibility.tool.mcpInfo?.serverName ?? 'unknown'}`)
     segments.push(`tool=${args.visibility.tool.mcpInfo?.toolName ?? args.visibility.tool.name}`)
@@ -853,6 +971,14 @@ function formatCodexReplFunctionToolLine(args: {
     } else {
       segments.push('status=unavailable')
       segments.push('reason=bridge server not connected')
+    }
+
+    segments.push(`endpoint=${diagnostics.endpoint}`)
+    if (client?.type !== 'connected') {
+      segments.push(`capabilities=${diagnostics.capabilities}`)
+    }
+    if (client?.type === 'connected') {
+      segments.push(`reason=${diagnostics.reason}`)
     }
   }
 

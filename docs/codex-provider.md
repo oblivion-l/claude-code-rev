@@ -284,6 +284,7 @@ bun run dev
 - `/status`
   - 查看当前 provider、model、base URL、session id、当前目录、conversation state、state 文件路径、最后保存时间，以及 MCP 连接状态。
   - 对每个 MCP bridge server 额外显示 `scope/plugin` 来源、目标端点（`command` 或 `endpoint`）、连接后 server info 与 capabilities，失败时统一输出 `reason=...`。
+  - `remote-mcp` 与 `mcp-bridge` 现在都会补齐同一套核心诊断字段：`source`、`server`、`transport`、`scope`、`endpoint`、`status`、`capabilities`、`reason`。
 - `/resume`
   - 按当前工作目录加载最近一次持久化的 Codex REPL conversation state。
 - `/resume <state-id>`
@@ -294,6 +295,7 @@ bun run dev
   - 查看当前暴露给 Codex 的本地 function tools、bridge MCP 工具可见性、远程 MCP passthrough，以及 MCP bridge 连接状态。
   - 每个 function tool 都会显示 `decision=` 与 `selection-reason=`，用于解释它为何被选中或隐藏。
   - 对已发现的 deferred bridge 工具，`/tools` 还会显示 `recovered=true|false`，用于快速判断当前 live source 是否已经回到与已发现签名一致的可用状态。
+  - `remote-mcp` 与 `mcp-bridge` 的诊断字段保持同一套键名，便于 grep、日志检索和故障对比。
   - MCP bridge tool 会联动显示所属 `server`、当前 `status`、来源与端点信息，便于定位是 ToolSearch 未发现、bridge 未连通，还是 server 鉴权/配置异常。
 - `/exit`
   - 退出当前 Codex REPL。
@@ -348,6 +350,15 @@ codex> /exit
 - 每个 MCP server 的 scope / plugin 来源、目标 command 或 endpoint
 - 已连接 server 的 server info / capabilities 摘要
 - 远程 MCP passthrough server 列表
+- 对 `remote-mcp` 与 `mcp-bridge`，统一输出：
+  - `source=<local|mcp-bridge|remote-mcp|tool-search>`
+  - `server=<name>`
+  - `transport=<stdio|sse|ws|http|unknown>`
+  - `scope=<project|user|...|unknown>`
+  - `endpoint=<url|command|n/a>`
+  - `status=<connected|failed|disconnected|unavailable>`
+  - `capabilities=<csv|none>`
+  - `reason=<message|none>`
 
 `/tools` 输出重点：
 
@@ -368,6 +379,7 @@ codex> /exit
   - `duplicate-lower-priority`
   - `tool-search-for-deferred`
 - 对已发现的 deferred bridge 工具，`recovered=true` 表示当前 live source 已重新匹配已记录的 discovered signature；`recovered=false` 表示它仍处于 `stale-discovery` 或其他未恢复状态
+- `remote-mcp` 由于当前仅做 passthrough，不额外做本地握手探测，因此通常显示 `transport=unknown`、`scope=unknown`、`capabilities=none`
 - deferred tools 是否仍隐藏，等待 ToolSearch 选择后再暴露
 - 若 deferred tool 来自 MCP bridge，会显示其所属 server、当前状态、来源和端点信息
 - 本地 MCP bridge server 的连接状态和失败原因

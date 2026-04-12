@@ -185,6 +185,26 @@ function createFailedMcpClient(
   }
 }
 
+function expectLineToContainDiagnosticKeys(
+  line: string | undefined,
+  keys: string[],
+): void {
+  expect(line).toBeDefined()
+  for (const key of keys) {
+    expect(line).toContain(`${key}=`)
+  }
+}
+
+function expectLineToContainDiagnostics(
+  line: string | undefined,
+  diagnostics: Record<string, string>,
+): void {
+  expect(line).toBeDefined()
+  for (const [key, value] of Object.entries(diagnostics)) {
+    expect(line).toContain(`${key}=${value}`)
+  }
+}
+
 async function collectTurn(
   session: ReturnType<typeof createCodexReplSession>,
   prompt: string,
@@ -1131,15 +1151,77 @@ describe('createCodexReplSession', () => {
     expect(lines).toContain(
       'MCP bridge servers: 2 total (1 connected, 0 pending, 1 failed, 0 needs-auth, 0 disabled)',
     )
-    expect(lines).toContain(
-      '- docs [connected] transport=stdio scope=user command=node server.js server=unknown capabilities=tools',
-    )
-    expect(lines).toContain(
-      '- github [failed] transport=http scope=project plugin=github@acme endpoint=https://example.com/github-mcp reason=auth expired',
-    )
-    expect(lines).toContain(
-      '- remote-docs [remote-mcp] decision=selected, selection-reason=passthrough url=https://example.com/remote-mcp',
-    )
+    const bridgeConnectedLine = lines.find(line => line.startsWith('- docs [connected]'))
+    const bridgeFailedLine = lines.find(line => line.startsWith('- github [failed]'))
+    const remoteLine = lines.find(line => line.startsWith('- remote-docs [remote-mcp]'))
+
+    expectLineToContainDiagnosticKeys(bridgeConnectedLine, [
+      'source',
+      'server',
+      'transport',
+      'scope',
+      'endpoint',
+      'status',
+      'capabilities',
+      'reason',
+    ])
+    expectLineToContainDiagnostics(bridgeConnectedLine, {
+      source: 'mcp-bridge',
+      server: 'docs',
+      transport: 'stdio',
+      scope: 'user',
+      endpoint: 'node server.js',
+      status: 'connected',
+      capabilities: 'tools',
+      reason: 'none',
+    })
+    expect(bridgeConnectedLine).toContain('server-info=unknown')
+    expect(bridgeConnectedLine).toContain('command=node server.js')
+
+    expectLineToContainDiagnosticKeys(bridgeFailedLine, [
+      'source',
+      'server',
+      'transport',
+      'scope',
+      'endpoint',
+      'status',
+      'capabilities',
+      'reason',
+    ])
+    expectLineToContainDiagnostics(bridgeFailedLine, {
+      source: 'mcp-bridge',
+      server: 'github',
+      transport: 'http',
+      scope: 'project',
+      endpoint: 'https://example.com/github-mcp',
+      status: 'failed',
+      capabilities: 'none',
+      reason: 'auth expired',
+    })
+    expect(bridgeFailedLine).toContain('plugin=github@acme')
+
+    expectLineToContainDiagnosticKeys(remoteLine, [
+      'source',
+      'server',
+      'transport',
+      'scope',
+      'endpoint',
+      'status',
+      'capabilities',
+      'reason',
+    ])
+    expectLineToContainDiagnostics(remoteLine, {
+      source: 'remote-mcp',
+      server: 'remote-docs',
+      transport: 'unknown',
+      scope: 'unknown',
+      endpoint: 'https://example.com/remote-mcp',
+      status: 'connected',
+      capabilities: 'none',
+      reason: 'none',
+    })
+    expect(remoteLine).toContain('decision=selected')
+    expect(remoteLine).toContain('selection-reason=passthrough')
   })
 
   it('shows tool visibility and sources for /tools', async () => {
@@ -1200,20 +1282,69 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Function tools exposed: 2')
     expect(lines).toContain(
-      '- Read [local] decision=selected, selection-reason=always-visible',
+      '- Read [local] source=local, decision=selected, selection-reason=always-visible',
     )
     expect(lines).toContain(
-      '- ToolSearch [tool-search] decision=selected, selection-reason=tool-search-for-deferred',
+      '- ToolSearch [tool-search] source=tool-search, decision=selected, selection-reason=tool-search-for-deferred',
     )
     expect(lines).toContain(
       'Deferred/hidden tools: 1',
     )
-    expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] deferred, decision=hidden, selection-reason=awaiting-tool-search server=docs tool=search status=connected transport=stdio scope=project plugin=docs@acme command=node docs-server.js capabilities=resources,tools',
+    const bridgeToolLine = lines.find(
+      line => line.startsWith('- mcp__docs__search [mcp-bridge]'),
     )
-    expect(lines).toContain(
-      '- remote-docs [remote-mcp] decision=selected, selection-reason=passthrough url=https://example.com/remote-mcp',
+    const remoteToolLine = lines.find(
+      line => line.startsWith('- remote-docs [remote-mcp]'),
     )
+
+    expectLineToContainDiagnosticKeys(bridgeToolLine, [
+      'source',
+      'server',
+      'transport',
+      'scope',
+      'endpoint',
+      'status',
+      'capabilities',
+      'reason',
+    ])
+    expectLineToContainDiagnostics(bridgeToolLine, {
+      source: 'mcp-bridge',
+      server: 'docs',
+      transport: 'stdio',
+      scope: 'project',
+      endpoint: 'node docs-server.js',
+      status: 'connected',
+      capabilities: 'resources,tools',
+      reason: 'none',
+    })
+    expect(bridgeToolLine).toContain('deferred')
+    expect(bridgeToolLine).toContain('selection-reason=awaiting-tool-search')
+    expect(bridgeToolLine).toContain('plugin=docs@acme')
+    expect(bridgeToolLine).toContain('command=node docs-server.js')
+
+    expectLineToContainDiagnosticKeys(remoteToolLine, [
+      'source',
+      'server',
+      'transport',
+      'scope',
+      'endpoint',
+      'status',
+      'capabilities',
+      'reason',
+    ])
+    expectLineToContainDiagnostics(remoteToolLine, {
+      source: 'remote-mcp',
+      server: 'remote-docs',
+      transport: 'unknown',
+      scope: 'unknown',
+      endpoint: 'https://example.com/remote-mcp',
+      status: 'connected',
+      capabilities: 'none',
+      reason: 'none',
+    })
+    expect(remoteToolLine).toContain('decision=selected')
+    expect(remoteToolLine).toContain('selection-reason=passthrough')
+    expect(remoteToolLine).not.toContain('recovered=')
     expect(lines).toContain(
       'MCP bridge servers: 1 total (1 connected, 0 pending, 0 failed, 0 needs-auth, 0 disabled)',
     )
@@ -1273,10 +1404,10 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Function tools exposed: 1')
     expect(lines).toContain(
-      '- ToolSearch [tool-search] decision=selected, selection-reason=tool-search-for-deferred',
+      '- ToolSearch [tool-search] source=tool-search, decision=selected, selection-reason=tool-search-for-deferred',
     )
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] deferred, discovered, recovered=false, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=false, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools endpoint=node changed-docs-server.js reason=none',
     )
   })
 
@@ -1334,7 +1465,7 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Function tools exposed: 2')
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] deferred, discovered, recovered=true, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=true, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools endpoint=node docs-server.js reason=none',
     )
   })
 

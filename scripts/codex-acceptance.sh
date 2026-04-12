@@ -50,6 +50,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PASS_COUNT=0
 FAIL_COUNT=0
 TOTAL_COUNT=0
+FAILED_CASE_LABELS=()
+FAILED_CASE_REPAIRS=()
 
 DEFAULT_CODEX_MODEL="${CODEX_MODEL:-gpt-5-codex}"
 export CLAUDE_CODE_USE_CODEX=1
@@ -91,6 +93,8 @@ print_case_header() {
 record_result() {
   local passed="$1"
   local exit_code="$2"
+  local label="$3"
+  local repair_hint="$4"
 
   TOTAL_COUNT=$((TOTAL_COUNT + 1))
 
@@ -102,6 +106,8 @@ record_result() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
     echo "Exit code: ${exit_code}"
     echo "Result: FAIL"
+    FAILED_CASE_LABELS+=("${label}")
+    FAILED_CASE_REPAIRS+=("${repair_hint}")
   fi
 }
 
@@ -110,6 +116,7 @@ run_case() {
   local expected_exit="$2"
   local expect_pattern="$3"
   local cmd="$4"
+  local repair_hint="${5:-Check the failing command output and rerun the matching local test or CLI step.}"
 
   print_case_header "${label}" "${cmd}"
 
@@ -146,11 +153,12 @@ run_case() {
     fi
   fi
 
-  record_result "${passed}" "${exit_code}"
+  record_result "${passed}" "${exit_code}" "${label}" "${repair_hint}"
 
   if [[ "${passed}" -eq 0 ]]; then
     echo "Output:"
     sed -n '1,80p' "${output_file}"
+    echo "Suggested fix: ${repair_hint}"
   fi
 
   rm -f "${output_file}"
@@ -169,25 +177,29 @@ run_happy_path() {
     'Happy path: plain text prompt' \
     0 \
     'OK' \
-    "bun run dev -p 'Reply with OK only. Do not use any tools. Do not inspect files. Output exactly OK.'"
+    "bun run dev -p 'Reply with OK only. Do not use any tools. Do not inspect files. Output exactly OK.'" \
+    'Verify OPENAI_API_KEY/baseUrl/model first, then rerun the plain text prompt.'
 
   run_case \
     'Happy path: json output' \
     0 \
     '\"subtype\":\"success\"|\"result\":\"OK\"' \
-    "bun run dev -p --output-format json 'Reply with OK only. Do not use any tools. Do not inspect files. Output exactly OK.'"
+    "bun run dev -p --output-format json 'Reply with OK only. Do not use any tools. Do not inspect files. Output exactly OK.'" \
+    'Re-run with --output-format json and inspect provider config plus stdout contract changes.'
 
   run_case \
     'Happy path: structured output' \
     0 \
     '\"summary\":\"OK\"' \
-    "bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return exactly this JSON object and nothing else: {\"summary\":\"OK\"}'"
+    "bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return exactly this JSON object and nothing else: {\"summary\":\"OK\"}'" \
+    'Check structured-output model policy and schema validation before rerunning.'
 
   run_case \
     'Happy path: structured output stream-json' \
     0 \
     'codex_json_schema|parsed_result|\"summary\":\"OK\"' \
-    "bun run dev -p --output-format stream-json --verbose --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return exactly this JSON object and nothing else: {\"summary\":\"OK\"}'"
+    "bun run dev -p --output-format stream-json --verbose --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return exactly this JSON object and nothing else: {\"summary\":\"OK\"}'" \
+    'Inspect stream-json system events and schema validation output for regressions.'
 }
 
 run_fail_fast() {
@@ -195,33 +207,85 @@ run_fail_fast() {
     'Fail-fast: local allowlist' \
     'nonzero' \
     'Model .* is not enabled for Codex --json-schema mode in this CLI build' \
-    "CODEX_MODEL=gpt-4o-mini bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return a JSON object with summary'"
+    "CODEX_MODEL=gpt-4o-mini bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":{\"summary\":{\"type\":\"string\"}},\"required\":[\"summary\"],\"additionalProperties\":false}' 'Return a JSON object with summary'" \
+    'Restore a supported CODEX_MODEL or update the structured-output allowlist expectation.'
 
   run_case \
     'Fail-fast: invalid json schema' \
     'nonzero' \
     'Invalid JSON Schema for --json-schema' \
-    "bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":\"broken\"}' 'Return a JSON object with summary'"
+    "bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":\"broken\"}' 'Return a JSON object with summary'" \
+    'Fix the JSON Schema payload or rerun the schema compiler tests.'
 
   run_case \
     'Fail-fast: continue without state' \
     'nonzero' \
     'Codex provider continue requested but no persisted conversation state is available for the current directory\.' \
-    "bun run dev -p --continue 'Follow up on the prior answer'"
+    "bun run dev -p --continue 'Follow up on the prior answer'" \
+    'Check persisted-state scanning and sessionText wording before rerunning.'
 
   run_case \
     'Fail-fast: resume without persisted state' \
     'nonzero' \
     'Codex provider resume requested but no persisted conversation state is available\.' \
-    "bun run dev -p --resume 'Follow up on the prior answer'"
+    "bun run dev -p --resume 'Follow up on the prior answer'" \
+    'Check resume fail-fast wording and persisted-state availability handling.'
+}
+
+run_targeted_proxies() {
+  run_case \
+    'Proxy: REPL session and slash command coverage' \
+    0 \
+    '' \
+    'bun test ./src/services/codex/runReplCodex.test.ts' \
+    'Inspect REPL slash command, MCP status, and resume tests.'
+
+  run_case \
+    'Proxy: MCP mapping and diagnostics coverage' \
+    0 \
+    '' \
+    'bun test ./src/services/codex/mcp.test.ts' \
+    'Inspect MCP config mapping, bridge passthrough rules, and diagnostics expectations.'
+
+  run_case \
+    'Proxy: ToolSearch and deferred tooling coverage' \
+    0 \
+    '' \
+    'bun test ./src/services/codex/toolBridge.test.ts ./src/services/codex/orchestration.test.ts' \
+    'Inspect deferred tool selection, priority, and mixed-tooling matrix tests.'
+
+  run_case \
+    'Proxy: Windows diagnostics coverage' \
+    0 \
+    '' \
+    'bun test ./src/services/codex/windowsDiagnostics.test.ts ./src/services/codex/windowsLaunchers.test.ts' \
+    'Inspect Windows launcher diagnostics, selfcheck hints, and launcher-dir error handling.'
+
+  run_case \
+    'Proxy: Windows selfcheck local mode' \
+    0 \
+    'Codex 自检结果：|PASS|汇总：' \
+    'bun run codex:selfcheck --skip-api' \
+    'Run codex:selfcheck --skip-api directly and inspect bun/node/config diagnostics.'
 }
 
 print_summary() {
   echo
   echo '== Summary =='
+  echo "Mode profile: ${MODE}"
   echo "Passed: ${PASS_COUNT}"
   echo "Failed: ${FAIL_COUNT}"
   echo "Total: ${TOTAL_COUNT}"
+
+  if [[ "${FAIL_COUNT}" -gt 0 ]]; then
+    echo
+    echo 'Failed cases with suggested fixes:'
+    local index
+    for ((index = 0; index < ${#FAILED_CASE_LABELS[@]}; index += 1)); do
+      echo "- ${FAILED_CASE_LABELS[$index]}"
+      echo "  repair: ${FAILED_CASE_REPAIRS[$index]}"
+    done
+  fi
 }
 
 main() {
@@ -231,6 +295,7 @@ main() {
   run_happy_path
 
   if [[ "${MODE}" == 'full' ]]; then
+    run_targeted_proxies
     run_fail_fast
   fi
 

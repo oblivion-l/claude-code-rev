@@ -4,11 +4,10 @@
 
 本轮验收范围：
 
-- 仅覆盖 headless `--print`
+- 覆盖 headless `--print` 核心路径
 - 覆盖单轮请求、跨进程 `--continue` 和持久化 `--resume`
 - 覆盖可选的 `--json-schema` structured outputs
-- 不包含 REPL 改动
-- 不包含 MCP 或工具编排改动
+- 通过脚本代理测试覆盖 REPL、MCP、ToolSearch 与 Windows 关键路径
 
 补充说明：
 
@@ -84,7 +83,7 @@ bash scripts/codex-acceptance.sh --full
 脚本模式：
 
 - `--quick`：执行 preflight 和核心 happy path
-- `--full`：执行完整脚本清单，包括当前实现中的 persisted-state fail-fast 场景
+- `--full`：执行完整脚本清单，包括 REPL/MCP/ToolSearch/Windows 代理测试与 persisted-state fail-fast 场景
 - `--dry-run`：只打印将执行的命令，不实际运行
 - `CASE_TIMEOUT_SECONDS=<秒数>`：覆盖单条验收命令的超时时间，默认 `45`
 
@@ -121,6 +120,7 @@ bun run codex:install-launchers
 - 非 dry-run 模式下，如果 `OPENAI_API_KEY` 未设置，脚本会友好报错并提前退出
 - 脚本默认会为每条验收命令加 `45s` 超时，避免开放式回复拖慢整轮验收
 - 单条命令失败后，脚本会继续执行后续项，并在最后统一汇总
+- 脚本汇总中会直接列出失败项与 `repair:` 建议，便于定位下一步修复动作
 - 只要有任一脚本化检查失败，脚本最终就会返回非零
 - API 侧 structured-output rejection 仍保留为手工检查项，因为它依赖“能到达 API 但会拒绝 `text.format`”的特定模型或 base URL 组合
 

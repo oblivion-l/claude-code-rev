@@ -75,7 +75,7 @@ bash scripts/codex-acceptance.sh --full
 脚本模式：
 
 - `--quick`：执行 preflight 和核心 happy path
-- `--full`：执行完整脚本清单，包括可确定的 fail-fast 场景
+- `--full`：执行完整脚本清单，包括当前实现中的 persisted-state fail-fast 场景
 - `--dry-run`：只打印将执行的命令，不实际运行
 - `CASE_TIMEOUT_SECONDS=<秒数>`：覆盖单条验收命令的超时时间，默认 `45`
 
@@ -311,6 +311,7 @@ bun run dev -p --continue "Follow up on the prior answer"
 - 在 `stream-json` 模式下，上述提示会作为 `system` 事件输出，并固定包含：`subtype/message/source_cwd/requested_cwd/reason/error_code/ts`。
 - 若发生跨目录回退，REPL `/resume` 成功行会显示 `source-cwd=<path>`，后续 `/status` 会额外显示 `Session source: global-fallback ...`。
 - 若以 Codex REPL 启动参数使用 `--continue` 命中全局回退，后续 `/status` 也应显示同样的 `Session source: global-fallback ...`。
+- MCP bridge 失败、鉴权缺失、未连通或被禁用时，`/status` 与 `/tools` 应附带短 `hint=` 字段，便于区分 `refresh-auth` / `check-connection` / `enable-server` / `wait-retry` / `start-bridge`。
 - 只有在所有候选都不可恢复时才会 fail-fast；此时错误文案会保持既有 `Codex provider continue/resume requested ...` 风格，并可附带 `Skipped <n> broken persisted conversation state(s) while scanning recovery candidates.` 诊断后缀。
 - 在 Codex REPL 中执行 `/sessions` 时，若扫描到损坏文件，会显示 `skipped-broken-count=<n>`。
 

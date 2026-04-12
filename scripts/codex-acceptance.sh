@@ -206,7 +206,7 @@ run_fail_fast() {
   run_case \
     'Fail-fast: continue without state' \
     'nonzero' \
-    'Codex provider continue requested but no conversation state is available for the current directory\.' \
+    'Codex provider continue requested but no persisted conversation state is available for the current directory\.' \
     "bun run dev -p --continue 'Follow up on the prior answer'"
 
   run_case \

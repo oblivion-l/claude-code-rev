@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  classifyCodexApiError,
   formatCodexApiError,
   tryParseCodexApiErrorBody,
 } from './errors.js'
@@ -167,6 +168,67 @@ describe('formatCodexApiError', () => {
         usedFunctionTools: true,
       }),
     ).toContain('Codex tools are not supported for model gpt-5-codex')
+  })
+
+  it('classifies remote MCP and local tool conflicts with a stable error code and hint', () => {
+    expect(
+      classifyCodexApiError({
+        status: 400,
+        body: {
+          error: {
+            message: 'Unsupported parameter: tools[0].type',
+            param: 'tools[0].type',
+            code: 'unsupported_parameter',
+          },
+        },
+        model: 'gpt-5-codex',
+        usedStructuredOutput: false,
+        usedMcpTools: true,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: true,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        category: 'tooling',
+        errorCode: 'CODEX_TOOLING_CONFLICT_REMOTE_LOCAL',
+        hint: 'disable-remote-mcp-or-local-tools',
+        requestedSources: ['local', 'remote-mcp', 'tool-search'],
+      }),
+    )
+  })
+
+  it('classifies local and bridged tool conflicts with a stable error code and hint', () => {
+    expect(
+      classifyCodexApiError({
+        status: 400,
+        body: {
+          error: {
+            message: 'Unsupported parameter: tools[1].type',
+            param: 'tools[1].type',
+            code: 'unsupported_parameter',
+          },
+        },
+        model: 'gpt-5-codex',
+        usedStructuredOutput: false,
+        usedMcpTools: false,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: true,
+        usedToolSearch: false,
+        usedFunctionTools: true,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        message: expect.stringContaining(
+          'Codex tools are not supported for model gpt-5-codex',
+        ),
+        category: 'tooling',
+        errorCode: 'CODEX_TOOLING_CONFLICT_LOCAL_BRIDGE',
+        hint: 'disable-bridge-or-local-tools',
+        requestedSources: ['local', 'mcp-bridge'],
+      }),
+    )
   })
 
   it('falls back to a generic API error when no special case matches', () => {

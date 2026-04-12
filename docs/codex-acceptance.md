@@ -10,6 +10,11 @@
 - 不包含 REPL 改动
 - 不包含 MCP 或工具编排改动
 
+补充说明：
+
+- Codex 路径新增了一层 mixed tooling 错误分类，用于稳定输出 `error_code` / `hint` 并锁定失败后 discovered/deferred 状态不丢。
+- 这部分当前主要由模块测试覆盖；如需手工复查，优先看 `src/services/codex/errors.test.ts`、`src/services/codex/orchestration.test.ts`、`src/services/codex/runReplCodex.test.ts`。
+
 ## 环境准备
 
 必备：

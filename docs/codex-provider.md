@@ -78,6 +78,7 @@
 - deferred tool 去重采用稳定策略：先比较当前是否可见，再比较来源优先级；当前来源优先级为 `local > mcp-bridge > remote-mcp > tool-search`
 - 当同名工具已发现但当前来源签名变化时，会判定为 `stale-discovery` 并重新隐藏，等待下一次重新发现
 - 断连、重连或配置变更不会主动清空已发现工具记录；错误场景下仍会保留已发现状态，后续按当前来源重新判定是否继续暴露
+- 当 Codex API 拒绝当前工具组合时，Codex REPL 会在原错误主句后追加稳定的 `error_code=` 与 `hint=`，便于区分 `remote-mcp + local` 冲突、`local + mcp-bridge` 冲突，以及单一路径不受支持
 
 当前 Codex MCP 的执行方式分为两类：
 
@@ -529,10 +530,12 @@ API 侧 schema 拒绝或不支持关键字
 
 - 说明请求里启用了 Codex 本地 function tools，但 API 明确拒绝了 `tools` 参数或对应能力组合。
 - 这通常表示当前模型或当前 Responses API 参数组合不支持本地 function tools。
+- 如果当前 REPL 输出额外带有 `error_code=CODEX_TOOLING_CONFLICT_REMOTE_LOCAL`，则表示这次失败不是“单纯本地 tools 不支持”，而是请求里同时带了 `remote-mcp` 与本地 function source；优先按 `hint=disable-remote-mcp-or-local-tools` 排查。
 
 `Codex locally bridged MCP tools are not supported for model ... or this API parameter set`
 
 - 说明你当前使用的是通过本仓库 MCP client 桥接出来的 MCP 工具，而不是直接透传的远程 `mcp` tool。
+- 如果 REPL 追加 `error_code=CODEX_TOOLING_CONFLICT_LOCAL_BRIDGE`，则表示这次失败对应的是 `local + mcp-bridge` 的混合组合，而不是单独 bridge source 失效；按 `hint=disable-bridge-or-local-tools` 处理。
 - 这通常表示当前模型或当前 Responses API 参数组合不支持这类 function-tool 形式的桥接工具。
 
 `Codex provider currently does not support remote MCP tools in --print mode.`

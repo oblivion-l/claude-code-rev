@@ -7,6 +7,7 @@ import {
   buildMissingCodexLocalToolRuntimeMessage,
   prepareCodexToolOrchestration,
   requireCodexFunctionToolExecutor,
+  summarizeCodexRequestTooling,
 } from './orchestration.js'
 import type { CodexToolRuntime } from './toolRuntime.js'
 
@@ -249,5 +250,16 @@ describe('prepareCodexToolOrchestration', () => {
         name: 'ToolSearch',
       }),
     ])
+
+    expect(summarizeCodexRequestTooling(orchestration.requestTools)).toEqual(
+      expect.objectContaining({
+        usedMcpTools: true,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: true,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+        sources: ['local', 'mcp-bridge', 'remote-mcp', 'tool-search'],
+      }),
+    )
   })
 })

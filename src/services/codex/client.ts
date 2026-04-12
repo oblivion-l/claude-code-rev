@@ -6,7 +6,8 @@ import type {
   CodexStructuredOutputFormat,
 } from './types.js'
 import {
-  formatCodexApiError,
+  classifyCodexApiError,
+  CodexApiRequestError,
   tryParseCodexApiErrorBody,
 } from './errors.js'
 import { summarizeCodexRequestTooling } from './orchestration.js'
@@ -27,17 +28,22 @@ async function buildHttpError({
   const toolingUsage = summarizeCodexRequestTooling(tools ?? [])
 
   if (parsed) {
-    return new Error(
-      formatCodexApiError({
-        status: response.status,
-        body: parsed,
-        model,
-        usedStructuredOutput,
-        usedMcpTools: toolingUsage.usedMcpTools,
-        usedBridgedMcpTools: toolingUsage.usedBridgedMcpTools,
-        usedFunctionTools: toolingUsage.usedFunctionTools,
-      }),
-    )
+    const classification = classifyCodexApiError({
+      status: response.status,
+      body: parsed,
+      model,
+      usedStructuredOutput,
+      usedMcpTools: toolingUsage.usedMcpTools,
+      usedBridgedMcpTools: toolingUsage.usedBridgedMcpTools,
+      usedLocalFunctionTools: toolingUsage.usedLocalFunctionTools,
+      usedToolSearch: toolingUsage.usedToolSearch,
+      usedFunctionTools: toolingUsage.usedFunctionTools,
+    })
+
+    return new CodexApiRequestError({
+      status: response.status,
+      ...classification,
+    })
   }
 
   const detail = bodyText.trim() || response.statusText || 'Unknown error'

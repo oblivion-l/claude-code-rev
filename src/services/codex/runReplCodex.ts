@@ -32,6 +32,7 @@ import {
   parseCodexSSE,
 } from './client.js'
 import { getCodexRuntimeConfig } from './config.js'
+import { isCodexApiRequestError } from './errors.js'
 import {
   getCodexDiscoveredToolState,
   withCodexDiscoveredToolNames,
@@ -239,7 +240,16 @@ function writeError(message: string): void {
 }
 
 function formatCodexReplError(error: unknown): string {
-  return isAbortError(error) ? 'Request interrupted by user.' : errorMessage(error)
+  if (isAbortError(error)) {
+    return 'Request interrupted by user.'
+  }
+
+  const message = errorMessage(error)
+  if (isCodexApiRequestError(error) && error.category === 'tooling') {
+    return `${message} error_code=${error.errorCode} hint=${error.hint}`
+  }
+
+  return message
 }
 
 function isClosedInputError(error: unknown): boolean {

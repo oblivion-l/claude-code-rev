@@ -1043,8 +1043,13 @@ describe('createCodexReplSession', () => {
       ),
     })
 
-    await expect(collectTurn(session, 'discover docs then fail')).rejects.toThrow(
-      'Codex locally bridged MCP tools are not supported for model gpt-5-codex or this API parameter set: Unsupported parameter: tools[1].type',
+    await expect(collectTurn(session, 'discover docs then fail')).rejects.toMatchObject(
+      expect.objectContaining({
+        message:
+          'Codex locally bridged MCP tools are not supported for model gpt-5-codex or this API parameter set: Unsupported parameter: tools[1].type',
+        errorCode: 'CODEX_TOOLING_BRIDGED_MCP_UNSUPPORTED',
+        hint: 'disable-bridge-or-switch-model',
+      }),
     )
 
     expect(session.state.metadata).toEqual(
@@ -1126,6 +1131,59 @@ describe('createCodexReplSession', () => {
     expect(stdout.join('')).toContain('Recovered turn')
     expect(persistedStates).toHaveLength(2)
     expect(persistedStates[1]?.lastResponseId).toBe('resp_after_error')
+  })
+
+  it('prints stable error_code and hint for mixed remote and local tooling rejections', async () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CONFIG_DIR = configDir
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.CLAUDE_CODE_SIMPLE = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+    resetHooksConfigSnapshot()
+
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            message: 'Unsupported parameter: tools[0].type',
+            param: 'tools[0].type',
+            code: 'unsupported_parameter',
+          },
+        }),
+        {
+          status: 400,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        },
+      )
+
+    const stderr: string[] = []
+    const persistedStates: CodexReplTurnResult['conversationState'][] = []
+    const session = createCodexReplSession({
+      runtime: createFakeRuntime([createFakeTool('Read')]),
+      mcpTools: [
+        {
+          type: 'mcp',
+          server_label: 'docs',
+          server_url: 'https://example.com/mcp',
+        },
+      ],
+    })
+
+    const outcome = await handleCodexReplPrompt({
+      session,
+      prompt: 'trigger mixed tooling rejection',
+      writeError: message => stderr.push(message),
+      writeLine: () => {},
+      persistState: state => persistedStates.push(state),
+    })
+
+    expect(outcome).toEqual({ kind: 'continue' })
+    expect(stderr).toEqual([
+      'Codex tools are not supported for model gpt-5-codex or this API parameter set: Unsupported parameter: tools[0].type error_code=CODEX_TOOLING_CONFLICT_REMOTE_LOCAL hint=disable-remote-mcp-or-local-tools',
+    ])
+    expect(persistedStates).toHaveLength(1)
   })
 
   it('shows help output for /help without leaving the REPL', async () => {

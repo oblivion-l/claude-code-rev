@@ -15,10 +15,19 @@ import type { CodexToolRuntime } from './toolRuntime.js'
 
 export const CODEX_MAX_LOCAL_TOOL_CALL_ROUNDS = 8
 
+export type CodexToolingSource =
+  | 'local'
+  | 'mcp-bridge'
+  | 'remote-mcp'
+  | 'tool-search'
+
 export type CodexToolingUsage = {
   usedMcpTools: boolean
   usedBridgedMcpTools: boolean
+  usedLocalFunctionTools: boolean
+  usedToolSearch: boolean
   usedFunctionTools: boolean
+  sources: CodexToolingSource[]
 }
 
 export type CodexToolOrchestration = {
@@ -31,14 +40,44 @@ export type CodexToolOrchestration = {
 export function summarizeCodexRequestTooling(
   requestTools: CodexRequestTool[],
 ): CodexToolingUsage {
+  const usedMcpTools = requestTools.some(tool => tool.type === 'mcp')
   const usedBridgedMcpTools = requestTools.some(
     tool => tool.type === 'function' && tool.name.startsWith('mcp__'),
   )
+  const usedToolSearch = requestTools.some(
+    tool => tool.type === 'function' && tool.name === TOOL_SEARCH_TOOL_NAME,
+  )
+  const usedLocalFunctionTools = requestTools.some(
+    tool =>
+      tool.type === 'function' &&
+      !tool.name.startsWith('mcp__') &&
+      tool.name !== TOOL_SEARCH_TOOL_NAME,
+  )
+  const sources: CodexToolingSource[] = []
+
+  if (usedLocalFunctionTools) {
+    sources.push('local')
+  }
+
+  if (usedBridgedMcpTools) {
+    sources.push('mcp-bridge')
+  }
+
+  if (usedMcpTools) {
+    sources.push('remote-mcp')
+  }
+
+  if (usedToolSearch) {
+    sources.push('tool-search')
+  }
 
   return {
-    usedMcpTools: requestTools.some(tool => tool.type === 'mcp'),
+    usedMcpTools,
     usedBridgedMcpTools,
+    usedLocalFunctionTools,
+    usedToolSearch,
     usedFunctionTools: requestTools.some(tool => tool.type === 'function'),
+    sources,
   }
 }
 

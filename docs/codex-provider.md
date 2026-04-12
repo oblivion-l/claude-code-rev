@@ -304,6 +304,7 @@ bun run dev
   - 对已发现的 deferred bridge 工具，`/tools` 还会显示 `recovered=true|false`，用于快速判断当前 live source 是否已经回到与已发现签名一致的可用状态。
   - 对 deferred/discovered 工具，`/tools` 还会追加简短的 `recovery-state=`，当前值包括 `pending-discovery`、`stale`、`recovered`、`retained`、`shadowed`、`broker`，用于快速判断它当前处于“等待发现、已失效、已恢复、仅保态或被更高优先级遮蔽”的哪一类恢复阶段。
   - MCP 诊断在保留 `hint=` 的同时，会补一个更细的 `hint-detail=`，当前最小值集合为 `none`、`auth`、`transport`、`endpoint`、`disabled`、`retrying`、`bridge`。
+  - MCP 诊断还会补统一的 `recovery-hint=`，用于描述恢复路径当前处于 `none`、`pending-discovery`、`stale`、`retrying`、`recovered`、`passthrough`、`start-bridge` 中的哪一种状态。
   - `remote-mcp` 与 `mcp-bridge` 的诊断字段保持同一套键名，便于 grep、日志检索和故障对比。
   - MCP bridge tool 会联动显示所属 `server`、当前 `status`、来源与端点信息，便于定位是 ToolSearch 未发现、bridge 未连通，还是 server 鉴权/配置异常。
   - 当 bridge 侧不可用时，工具行也会附带同样的 `hint=` 字段，方便从 `/tools` 直接判断是认证、连通性还是配置开关问题。
@@ -371,6 +372,7 @@ codex> /exit
   - `reason=<message|none>`
   - `hint=<repair-token>`
   - `hint-detail=<none|auth|transport|endpoint|disabled|retrying|bridge>`
+  - `recovery-hint=<none|pending-discovery|stale|retrying|recovered|passthrough|start-bridge>`
 
 `/tools` 输出重点：
 
@@ -398,6 +400,14 @@ codex> /exit
   - `retained`：保留已发现状态，但没有新的恢复动作
   - `shadowed`：当前被更高优先级同名工具遮蔽
   - `broker`：ToolSearch 自身，负责 deferred tool 的发现入口
+- `recovery-hint=` 用于补充 bridge/remote 恢复提示：
+  - `none`：当前没有恢复动作
+  - `pending-discovery`：连接正常，但 deferred tool 仍等待首次发现
+  - `stale`：当前 live source 未恢复到可用状态，或仍处于断连后的失配状态
+  - `retrying`：本地 bridge 正在重连
+  - `recovered`：断连或签名变化后的 source 已恢复匹配
+  - `passthrough`：remote-mcp 直通，不走本地恢复环
+  - `start-bridge`：当前缺少本地 bridge 连接，需要先启动 bridge
 - `remote-mcp` 由于当前仅做 passthrough，不额外做本地握手探测，因此通常显示 `transport=unknown`、`scope=unknown`、`capabilities=none`
 - deferred tools 是否仍隐藏，等待 ToolSearch 选择后再暴露
 - 若 deferred tool 来自 MCP bridge，会显示其所属 server、当前状态、来源和端点信息

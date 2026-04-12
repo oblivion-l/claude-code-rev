@@ -1385,6 +1385,7 @@ describe('createCodexReplSession', () => {
       'reason',
       'hint',
       'hint-detail',
+      'recovery-hint',
     ])
     expectLineToContainDiagnostics(bridgeConnectedLine, {
       source: 'mcp-bridge',
@@ -1397,6 +1398,7 @@ describe('createCodexReplSession', () => {
       reason: 'none',
       hint: 'none',
       'hint-detail': 'none',
+      'recovery-hint': 'none',
     })
     expect(bridgeConnectedLine).toContain('server-info=unknown')
     expect(bridgeConnectedLine).toContain('command=node server.js')
@@ -1412,6 +1414,7 @@ describe('createCodexReplSession', () => {
       'reason',
       'hint',
       'hint-detail',
+      'recovery-hint',
     ])
     expectLineToContainDiagnostics(bridgeFailedLine, {
       source: 'mcp-bridge',
@@ -1424,6 +1427,7 @@ describe('createCodexReplSession', () => {
       reason: 'auth expired',
       hint: 'refresh-auth',
       'hint-detail': 'auth',
+      'recovery-hint': 'stale',
     })
     expect(bridgeFailedLine).toContain('plugin=github@acme')
 
@@ -1438,6 +1442,7 @@ describe('createCodexReplSession', () => {
       'reason',
       'hint',
       'hint-detail',
+      'recovery-hint',
     ])
     expectLineToContainDiagnostics(remoteLine, {
       source: 'remote-mcp',
@@ -1450,6 +1455,7 @@ describe('createCodexReplSession', () => {
       reason: 'none',
       hint: 'none',
       'hint-detail': 'none',
+      'recovery-hint': 'passthrough',
     })
     expect(remoteLine).toContain('decision=selected')
     expect(remoteLine).toContain('selection-reason=passthrough')
@@ -1516,17 +1522,32 @@ describe('createCodexReplSession', () => {
     expect(lines.find(line => line.startsWith('- auth-server [needs-auth]'))).toContain(
       'hint-detail=auth',
     )
+    expect(lines.find(line => line.startsWith('- auth-server [needs-auth]'))).toContain(
+      'recovery-hint=stale',
+    )
     expect(lines.find(line => line.startsWith('- retry-server [pending]'))).toContain(
       'hint-detail=retrying',
+    )
+    expect(lines.find(line => line.startsWith('- retry-server [pending]'))).toContain(
+      'recovery-hint=retrying',
     )
     expect(lines.find(line => line.startsWith('- disabled-server [disabled]'))).toContain(
       'hint-detail=disabled',
     )
+    expect(lines.find(line => line.startsWith('- disabled-server [disabled]'))).toContain(
+      'recovery-hint=stale',
+    )
     expect(lines.find(line => line.startsWith('- transport-server [failed]'))).toContain(
       'hint-detail=transport',
     )
+    expect(lines.find(line => line.startsWith('- transport-server [failed]'))).toContain(
+      'recovery-hint=stale',
+    )
     expect(lines.find(line => line.startsWith('- endpoint-server [failed]'))).toContain(
       'hint-detail=endpoint',
+    )
+    expect(lines.find(line => line.startsWith('- endpoint-server [failed]'))).toContain(
+      'recovery-hint=stale',
     )
   })
 
@@ -1614,6 +1635,7 @@ describe('createCodexReplSession', () => {
       'reason',
       'hint',
       'hint-detail',
+      'recovery-hint',
     ])
     expectLineToContainDiagnostics(bridgeToolLine, {
       source: 'mcp-bridge',
@@ -1625,6 +1647,7 @@ describe('createCodexReplSession', () => {
       capabilities: 'resources,tools',
       reason: 'none',
       'hint-detail': 'none',
+      'recovery-hint': 'pending-discovery',
     })
     expect(bridgeToolLine).toContain('deferred')
     expect(bridgeToolLine).toContain('recovery-state=pending-discovery')
@@ -1643,6 +1666,7 @@ describe('createCodexReplSession', () => {
       'reason',
       'hint',
       'hint-detail',
+      'recovery-hint',
     ])
     expectLineToContainDiagnostics(remoteToolLine, {
       source: 'remote-mcp',
@@ -1655,6 +1679,7 @@ describe('createCodexReplSession', () => {
       reason: 'none',
       hint: 'none',
       'hint-detail': 'none',
+      'recovery-hint': 'passthrough',
     })
     expect(remoteToolLine).toContain('decision=selected')
     expect(remoteToolLine).toContain('selection-reason=passthrough')
@@ -1721,7 +1746,10 @@ describe('createCodexReplSession', () => {
       '- ToolSearch [tool-search] source=tool-search, decision=selected, selection-reason=tool-search-for-deferred',
     )
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=false, recovery-state=stale, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools endpoint=node changed-docs-server.js reason=none hint=none hint-detail=none',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=false, recovery-state=stale, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools endpoint=node changed-docs-server.js reason=none hint=none hint-detail=none recovery-hint=stale',
+    )
+    expect(lines.find(line => line.startsWith('- docs [connected]'))).toContain(
+      'recovery-hint=stale',
     )
   })
 
@@ -1779,7 +1807,10 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Function tools exposed: 2')
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=true, recovery-state=recovered, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools endpoint=node docs-server.js reason=none hint=none hint-detail=none',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=true, recovery-state=recovered, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools endpoint=node docs-server.js reason=none hint=none hint-detail=none recovery-hint=recovered',
+    )
+    expect(lines.find(line => line.startsWith('- docs [connected]'))).toContain(
+      'recovery-hint=recovered',
     )
   })
 

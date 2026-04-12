@@ -395,6 +395,7 @@ type CodexReplDiagnosticFields = {
   reason: string
   hint: string
   hintDetail: string
+  recoveryHint: string
 }
 
 function getCodexReplMcpTransport(
@@ -455,6 +456,7 @@ function formatCodexReplDiagnosticFields(
     `reason=${fields.reason}`,
     `hint=${fields.hint}`,
     `hint-detail=${fields.hintDetail}`,
+    `recovery-hint=${fields.recoveryHint}`,
   ]
 }
 
@@ -555,6 +557,7 @@ function formatCodexReplMcpRepairHint(
 
 function buildCodexReplBridgeDiagnosticFields(
   client?: MCPServerConnection,
+  recoveryHint = 'none',
 ): CodexReplDiagnosticFields {
   const capabilities =
     client?.type === 'connected'
@@ -578,6 +581,7 @@ function buildCodexReplBridgeDiagnosticFields(
     reason,
     hint: formatCodexReplMcpRepairHint(client),
     hintDetail: formatCodexReplMcpHintDetail(client),
+    recoveryHint,
   }
 }
 
@@ -595,7 +599,94 @@ function buildCodexReplRemoteMcpDiagnosticFields(
     reason: 'none',
     hint: 'none',
     hintDetail: 'none',
+    recoveryHint: 'passthrough',
   }
+}
+
+function formatCodexReplBridgeToolRecoveryHint(args: {
+  visibility: ReturnType<typeof analyzeCodexFunctionToolVisibility>[number]
+  client?: MCPServerConnection
+}): string {
+  if (args.visibility.recovered && args.visibility.selected) {
+    return 'recovered'
+  }
+
+  if (args.client?.type === 'pending') {
+    return 'retrying'
+  }
+
+  switch (args.visibility.reason) {
+    case 'awaiting-tool-search':
+      return 'pending-discovery'
+    case 'stale-discovery':
+      return 'stale'
+    default:
+      return args.client && args.client.type !== 'connected'
+        ? 'stale'
+        : !args.client
+          ? 'start-bridge'
+          : 'none'
+  }
+}
+
+function getCodexReplBridgeRecoveryHintsByServer(args: {
+  runtime?: CodexToolRuntime
+  discoveredToolNames: Set<string>
+  discoveredToolSignatures: Map<string, string>
+}): Map<string, string> {
+  const visibilities = analyzeCodexFunctionToolVisibility(
+    args.runtime?.tools ?? [],
+    args.runtime,
+    {
+      discoveredToolNames: args.discoveredToolNames,
+      discoveredToolSignatures: args.discoveredToolSignatures,
+    },
+  )
+  const hints = new Map<string, string>()
+
+  for (const visibility of visibilities) {
+    if (!visibility.tool.isMcp) {
+      continue
+    }
+
+    const serverName = visibility.tool.mcpInfo?.serverName
+    if (!serverName) {
+      continue
+    }
+
+    const client = findCodexReplMcpClient({
+      runtime: args.runtime,
+      serverName,
+    })
+    const recoveryHint = formatCodexReplBridgeToolRecoveryHint({
+      visibility,
+      client,
+    })
+    const current = hints.get(serverName)
+
+    const rank = (value: string): number => {
+      switch (value) {
+        case 'recovered':
+          return 5
+        case 'retrying':
+          return 4
+        case 'stale':
+          return 3
+        case 'pending-discovery':
+          return 2
+        case 'start-bridge':
+          return 1
+        default:
+          return 0
+      }
+    }
+
+    if (!current || rank(recoveryHint) > rank(current)) {
+      hints.set(serverName, recoveryHint)
+    }
+  }
+
+  return hints
 }
 
 function formatCodexReplMcpConfigSegments(
@@ -675,6 +766,7 @@ function findCodexReplMcpClient(options: {
 
 function summarizeCodexReplMcpClients(
   clients: MCPServerConnection[],
+  recoveryHintsByServer?: Map<string, string>,
 ): string[] {
   if (clients.length === 0) {
     return ['MCP bridge servers: none']
@@ -698,7 +790,13 @@ function summarizeCodexReplMcpClients(
         ? undefined
         : formatCodexReplMcpFailureReason(client)
     const segments = formatCodexReplMcpConfigSegments(client)
-    const diagnostics = buildCodexReplBridgeDiagnosticFields(client)
+    const diagnostics = buildCodexReplBridgeDiagnosticFields(
+      client,
+      client.type === 'pending'
+        ? 'retrying'
+        : recoveryHintsByServer?.get(client.name) ??
+            (client.type === 'connected' ? 'none' : 'stale'),
+    )
 
     if (client.type === 'connected') {
       segments.push(`server-info=${formatCodexReplMcpServerInfo(client)}`)
@@ -1139,7 +1237,13 @@ function formatCodexReplFunctionToolLine(args: {
       runtime: args.runtime,
       serverName: args.visibility.tool.mcpInfo?.serverName,
     })
-    const diagnostics = buildCodexReplBridgeDiagnosticFields(client)
+    const diagnostics = buildCodexReplBridgeDiagnosticFields(
+      client,
+      formatCodexReplBridgeToolRecoveryHint({
+        visibility: args.visibility,
+        client,
+      }),
+    )
 
     segments.push(`server=${args.visibility.tool.mcpInfo?.serverName ?? 'unknown'}`)
     segments.push(`tool=${args.visibility.tool.mcpInfo?.toolName ?? args.visibility.tool.name}`)
@@ -1169,6 +1273,7 @@ function formatCodexReplFunctionToolLine(args: {
     }
     segments.push(`hint=${diagnostics.hint}`)
     segments.push(`hint-detail=${diagnostics.hintDetail}`)
+    segments.push(`recovery-hint=${diagnostics.recoveryHint}`)
   }
 
   return `- ${args.visibility.tool.name} [${source}]${segments.length > 0 ? ` ${segments.join(' ')}` : ''}`
@@ -1703,9 +1808,18 @@ export class CodexReplSession {
       `Last response id: ${this.conversationState.lastResponseId ?? 'none'}`,
     ]
 
+    const recoveryHintsByServer = getCodexReplBridgeRecoveryHintsByServer({
+      runtime: this.options.runtime,
+      discoveredToolNames: this.discoveredToolNames,
+      discoveredToolSignatures: this.discoveredToolSignatures,
+    })
+
     return [
       ...lines,
-      ...summarizeCodexReplMcpClients(this.options.runtime?.mcpClients ?? []),
+      ...summarizeCodexReplMcpClients(
+        this.options.runtime?.mcpClients ?? [],
+        recoveryHintsByServer,
+      ),
       ...summarizeCodexReplRemoteMcpTools(this.options.mcpTools ?? []),
     ]
   }
@@ -1720,7 +1834,14 @@ export class CodexReplSession {
     return [
       ...lines,
       ...summarizeCodexReplRemoteMcpTools(this.options.mcpTools ?? []),
-      ...summarizeCodexReplMcpClients(this.options.runtime?.mcpClients ?? []),
+      ...summarizeCodexReplMcpClients(
+        this.options.runtime?.mcpClients ?? [],
+        getCodexReplBridgeRecoveryHintsByServer({
+          runtime: this.options.runtime,
+          discoveredToolNames: this.discoveredToolNames,
+          discoveredToolSignatures: this.discoveredToolSignatures,
+        }),
+      ),
     ]
   }
 

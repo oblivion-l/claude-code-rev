@@ -258,7 +258,7 @@ bun run dev -p --continue "Follow up on the prior answer"
 
 - 在新进程中执行时，命令退出非零
 - 错误信息包含：
-  `Codex provider continue requested but no conversation state is available for the current directory.`
+  `Codex provider continue requested but no persisted conversation state is available for the current directory.`
 
 ### 9. `resume` 无有效 state 时的 fail-fast 路径
 
@@ -303,7 +303,7 @@ bun run dev -p --resume <session_id> "Now summarize the main risks"
 | `Invalid JSON Schema for --json-schema` | 本地 schema 编译失败 | 修正 schema 结构 |
 | `Codex structured output is not valid JSON` | 模型返回了非 JSON 文本 | 收紧提示词和输出目标 |
 | `Codex structured output does not match the provided schema` | 返回的 JSON 没有通过本地 schema 校验 | 调整提示词或 schema |
-| `Codex provider continue requested but no conversation state is available for the current directory.` | 当前目录下没有可恢复的持久化 state | 先完成一次成功请求，或改用有效的 `--resume <state-id>` |
+| `Codex provider continue requested but no persisted conversation state is available for the current directory.` | 当前目录下没有可恢复的持久化 state | 先完成一次成功请求，或改用有效的 `--resume <state-id>` |
 | `Codex provider resume requested but no persisted conversation state is available.` | 没有找到对应的持久化 state | 检查 `--resume <state-id>` 是否有效 |
 | `Codex provider could not find persisted assistant turn ... for --resume-session-at.` | 当前 state 中不存在指定 assistant turn | 使用此前输出中的 assistant `uuid`，或直接从最新 turn 继续 |
 

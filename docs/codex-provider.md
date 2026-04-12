@@ -411,7 +411,7 @@ codex> /exit
 - `/resume <state-id>` 会按显式 state id 加载持久化 state
 - `/resume` 与 `/resume <state-id>` 的成功/失败文案已统一，便于脚本化判断
 - 若没有可用 state，会直接返回清晰错误，不会静默新建会话
-- `/status` 会使用与 headless 近似的 wording 提示当前目录是否已有可继续的 conversation state
+- `/status` 会使用与 headless 对齐的 wording 提示当前目录是否已有可继续的 persisted conversation state
 
 当在 Codex REPL 中使用 `/new` 和 `/sessions` 时：
 
@@ -465,7 +465,7 @@ codex> /exit
 - 说明本地 `codex-provider.json` 不是合法 JSON，或字段类型不正确。
 - 检查 `apiKey`、`baseUrl`、`model`、`organization`、`project` 是否都是字符串。
 
-`Codex provider continue requested but no conversation state is available for the current directory.`
+`Codex provider continue requested but no persisted conversation state is available for the current directory.`
 
 - 说明使用了 `--continue`，但当前工作目录下没有可恢复的持久化 state。
 - 先发起一次成功的 Codex headless 请求，或改用 `--resume <state-id>`。

@@ -54,6 +54,12 @@ import {
   getCodexReplState,
   setCodexReplState,
 } from './replState.js'
+import {
+  buildCodexContinueMissingStateMessage,
+  buildCodexPersistedConversationStateStatus,
+  buildCodexResumeMissingStateMessage,
+  buildCodexResumeSessionAtMissingTurnMessage,
+} from './sessionText.js'
 
 export type CodexReplConversationState = {
   providerId: 'codex-repl'
@@ -254,7 +260,7 @@ function getCodexReplContinueMissingCwdMessage(): string {
 }
 
 function getCodexReplContinueMissingStateMessage(): string {
-  return 'Codex REPL continue requested but no conversation state is available for the current directory.'
+  return buildCodexContinueMissingStateMessage('repl')
 }
 
 function getCodexReplResumeMissingCwdMessage(): string {
@@ -262,13 +268,16 @@ function getCodexReplResumeMissingCwdMessage(): string {
 }
 
 function getCodexReplResumeMissingStateMessage(): string {
-  return 'Codex REPL resume requested but no persisted conversation state is available.'
+  return buildCodexResumeMissingStateMessage('repl')
 }
 
 function getCodexReplResumeSessionAtMissingTurnMessage(
   assistantMessageUuid: string,
 ): string {
-  return `Codex REPL could not find persisted assistant turn ${assistantMessageUuid} for --resume-session-at.`
+  return buildCodexResumeSessionAtMissingTurnMessage({
+    surface: 'repl',
+    assistantMessageUuid,
+  })
 }
 
 function parseCodexReplSlashCommand(
@@ -623,15 +632,10 @@ function resolveCodexReplPersistedStateForResume(options: {
 function summarizeCodexReplPersistedConversationState(
   state: CodexReplConversationState,
 ): string {
-  if (!state.cwd) {
-    return 'Persisted conversation state: unavailable because no current working directory is available.'
-  }
-
-  if (!state.lastResponseId) {
-    return 'Persisted conversation state: no conversation state is available for the current directory yet.'
-  }
-
-  return 'Persisted conversation state: conversation state is available for the current directory.'
+  return buildCodexPersistedConversationStateStatus({
+    hasCurrentWorkingDirectory: Boolean(state.cwd),
+    hasPersistedConversationState: Boolean(state.lastResponseId),
+  })
 }
 
 function getCodexReplPersistedModel(

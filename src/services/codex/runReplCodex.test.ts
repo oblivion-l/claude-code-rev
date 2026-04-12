@@ -1142,7 +1142,7 @@ describe('createCodexReplSession', () => {
     expect(lines).toContain('Provider: Codex')
     expect(lines).toContain('Session id: status_state_1')
     expect(lines).toContain(
-      'Persisted conversation state: conversation state is available for the current directory.',
+      'Persisted conversation state: persisted conversation state is available for the current directory.',
     )
     expect(lines).toContain(
       `State file path: ${join(configDir, 'codex-repl', 'states', 'status_state_1.json')}`,

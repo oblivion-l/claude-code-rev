@@ -155,6 +155,121 @@ afterEach(() => {
 })
 
 describe('runHeadlessCodex', () => {
+  it('fails fast with aligned continue wording when no persisted state is available', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    const writes: unknown[] = []
+    const structuredIO = {
+      write: async (message: unknown) => {
+        writes.push(message)
+      },
+    }
+
+    const result = await runHeadlessCodex({
+      inputPrompt: 'Follow up on the prior answer',
+      structuredIO: structuredIO as any,
+      options: {
+        outputFormat: 'stream-json',
+        continue: true,
+      } as any,
+      conversationState: null,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        type: 'result',
+        subtype: 'error_during_execution',
+        error_code: 'HEADLESS_PROVIDER_INVALID_INPUT',
+        errors: [
+          'Codex provider continue requested but no persisted conversation state is available for the current directory.',
+        ],
+      }),
+    )
+  })
+
+  it('fails fast with aligned resume wording when no persisted state is available', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    const writes: unknown[] = []
+    const structuredIO = {
+      write: async (message: unknown) => {
+        writes.push(message)
+      },
+    }
+
+    const result = await runHeadlessCodex({
+      inputPrompt: 'Follow up on the prior answer',
+      structuredIO: structuredIO as any,
+      options: {
+        outputFormat: 'stream-json',
+        resume: 'missing_state_id',
+      } as any,
+      conversationState: null,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        type: 'result',
+        subtype: 'error_during_execution',
+        error_code: 'HEADLESS_PROVIDER_INVALID_INPUT',
+        errors: [
+          'Codex provider resume requested but no persisted conversation state is available.',
+        ],
+      }),
+    )
+  })
+
+  it('fails fast with aligned resume-session-at wording when the assistant turn is missing', async () => {
+    process.env.CLAUDE_CODE_USE_CODEX = '1'
+    process.env.OPENAI_API_KEY = 'test-key'
+
+    const writes: unknown[] = []
+    const structuredIO = {
+      write: async (message: unknown) => {
+        writes.push(message)
+      },
+    }
+
+    const result = await runHeadlessCodex({
+      inputPrompt: 'Branch from that earlier answer',
+      structuredIO: structuredIO as any,
+      options: {
+        outputFormat: 'stream-json',
+        resume: 'resume_state_1',
+        resumeSessionAt: 'missing_turn_id',
+      } as any,
+      conversationState: {
+        providerId: 'codex',
+        stateId: 'resume_state_1',
+        conversationId: 'resume_state_1',
+        lastResponseId: 'resp_resume_1',
+        history: [
+          {
+            assistantMessageUuid: 'msg_resume_1',
+            responseId: 'resp_resume_1',
+            createdAt: '2026-04-10T00:00:00.000Z',
+          },
+        ],
+      },
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        type: 'result',
+        subtype: 'error_during_execution',
+        error_code: 'HEADLESS_PROVIDER_INVALID_INPUT',
+        errors: [
+          'Codex provider could not find persisted assistant turn missing_turn_id for --resume-session-at.',
+        ],
+      }),
+    )
+  })
+
   it('falls back to done snapshots when response.completed has no output text', async () => {
     process.env.CLAUDE_CODE_USE_CODEX = '1'
     process.env.OPENAI_API_KEY = 'test-key'

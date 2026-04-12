@@ -58,6 +58,11 @@ import {
   extractUsage,
   getCodexFailureMessage,
 } from './stream.js'
+import {
+  buildCodexContinueMissingStateMessage,
+  buildCodexResumeMissingStateMessage,
+  buildCodexResumeSessionAtMissingTurnMessage,
+} from './sessionText.js'
 
 function buildUnsupportedModeMessage(
   options: HeadlessProviderOptions,
@@ -190,6 +195,44 @@ export async function runHeadlessCodex({
   runtime?: HeadlessProviderRuntime
 }): Promise<{ exitCode: number; conversationState?: HeadlessConversationState | null }> {
   const provider = createCodexHeadlessProvider()
+  if ((options.resume || options.resumeSessionAt) && !conversationState?.lastResponseId) {
+    await writeHeadlessProviderError(
+      structuredIO,
+      options.outputFormat,
+      buildCodexResumeMissingStateMessage('provider'),
+      getHeadlessProviderInvalidInputCode(),
+    )
+    return { exitCode: 1 }
+  }
+
+  if (
+    options.resumeSessionAt &&
+    !conversationState?.history?.some(
+      turn => turn.assistantMessageUuid === options.resumeSessionAt,
+    )
+  ) {
+    await writeHeadlessProviderError(
+      structuredIO,
+      options.outputFormat,
+      buildCodexResumeSessionAtMissingTurnMessage({
+        surface: 'provider',
+        assistantMessageUuid: options.resumeSessionAt,
+      }),
+      getHeadlessProviderInvalidInputCode(),
+    )
+    return { exitCode: 1 }
+  }
+
+  if (options.continue && !conversationState?.lastResponseId) {
+    await writeHeadlessProviderError(
+      structuredIO,
+      options.outputFormat,
+      buildCodexContinueMissingStateMessage('provider'),
+      getHeadlessProviderInvalidInputCode(),
+    )
+    return { exitCode: 1 }
+  }
+
   const continuationCheck = checkProviderContinuationSupport(
     provider,
     options,

@@ -803,6 +803,10 @@ describe('runHeadlessCodex', () => {
     expect(result.conversationState?.metadata).toEqual(
       expect.objectContaining({
         codexDiscoveredToolNames: ['mcp__docs__search'],
+        codexDiscoveredToolSignatures: {
+          mcp__docs__search:
+            'mcp-bridge:mcp__docs__search:docs:stdio:user::node:server.js',
+        },
       }),
     )
     expect(writes).toContainEqual(

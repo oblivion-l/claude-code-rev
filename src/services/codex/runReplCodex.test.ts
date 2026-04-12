@@ -1055,6 +1055,10 @@ describe('createCodexReplSession', () => {
     expect(session.state.metadata).toEqual(
       expect.objectContaining({
         codexDiscoveredToolNames: ['mcp__docs__search'],
+        codexDiscoveredToolSignatures: {
+          mcp__docs__search:
+            'mcp-bridge:mcp__docs__search:docs:stdio:user::node:server.js',
+        },
       }),
     )
   })
@@ -1516,6 +1520,7 @@ describe('createCodexReplSession', () => {
       reason: 'none',
     })
     expect(bridgeToolLine).toContain('deferred')
+    expect(bridgeToolLine).toContain('recovery-state=pending-discovery')
     expect(bridgeToolLine).toContain('selection-reason=awaiting-tool-search')
     expect(bridgeToolLine).toContain('plugin=docs@acme')
     expect(bridgeToolLine).toContain('command=node docs-server.js')
@@ -1607,7 +1612,7 @@ describe('createCodexReplSession', () => {
       '- ToolSearch [tool-search] source=tool-search, decision=selected, selection-reason=tool-search-for-deferred',
     )
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=false, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools endpoint=node changed-docs-server.js reason=none hint=none',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=false, recovery-state=stale, decision=hidden, selection-reason=stale-discovery server=docs tool=search status=connected transport=stdio scope=project command=node changed-docs-server.js capabilities=tools endpoint=node changed-docs-server.js reason=none hint=none',
     )
   })
 
@@ -1665,7 +1670,7 @@ describe('createCodexReplSession', () => {
     expect(outcome).toEqual({ kind: 'continue' })
     expect(lines).toContain('Function tools exposed: 2')
     expect(lines).toContain(
-      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=true, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools endpoint=node docs-server.js reason=none hint=none',
+      '- mcp__docs__search [mcp-bridge] source=mcp-bridge, deferred, discovered, recovered=true, recovery-state=recovered, decision=selected, selection-reason=discovered-match server=docs tool=search status=connected transport=stdio scope=project command=node docs-server.js capabilities=tools endpoint=node docs-server.js reason=none hint=none',
     )
   })
 

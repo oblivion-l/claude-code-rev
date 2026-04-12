@@ -231,6 +231,62 @@ describe('formatCodexApiError', () => {
     )
   })
 
+  it('classifies remote MCP plus ToolSearch-only combinations as remote-local conflicts', () => {
+    expect(
+      classifyCodexApiError({
+        status: 400,
+        body: {
+          error: {
+            message: 'Unsupported parameter: tools[0].type',
+            param: 'tools[0].type',
+            code: 'unsupported_parameter',
+          },
+        },
+        model: 'gpt-5-codex',
+        usedStructuredOutput: false,
+        usedMcpTools: true,
+        usedBridgedMcpTools: false,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        errorCode: 'CODEX_TOOLING_CONFLICT_REMOTE_LOCAL',
+        hint: 'disable-remote-mcp-or-local-tools',
+        requestedSources: ['remote-mcp', 'tool-search'],
+      }),
+    )
+  })
+
+  it('classifies bridged MCP plus ToolSearch combinations as bridged-tool rejections when no plain local tools are present', () => {
+    expect(
+      classifyCodexApiError({
+        status: 400,
+        body: {
+          error: {
+            message: 'Unsupported parameter: tools[1].type',
+            param: 'tools[1].type',
+            code: 'unsupported_parameter',
+          },
+        },
+        model: 'gpt-5-codex',
+        usedStructuredOutput: false,
+        usedMcpTools: false,
+        usedBridgedMcpTools: true,
+        usedLocalFunctionTools: false,
+        usedToolSearch: true,
+        usedFunctionTools: true,
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        errorCode: 'CODEX_TOOLING_BRIDGED_MCP_UNSUPPORTED',
+        hint: 'disable-bridge-or-switch-model',
+        requestedSources: ['mcp-bridge', 'tool-search'],
+      }),
+    )
+  })
+
   it('falls back to a generic API error when no special case matches', () => {
     expect(
       formatCodexApiError({

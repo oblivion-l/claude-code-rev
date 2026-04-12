@@ -796,6 +796,31 @@ function formatCodexReplToolDecisionReason(reason: ReturnType<
   }
 }
 
+function formatCodexReplToolRecoveryState(visibility: ReturnType<
+  typeof analyzeCodexFunctionToolVisibility
+>[number]): string | null {
+  if (!isDeferredTool(visibility.tool) && !visibility.discovered) {
+    return null
+  }
+
+  switch (visibility.reason) {
+    case 'awaiting-tool-search':
+      return 'pending-discovery'
+    case 'stale-discovery':
+      return 'stale'
+    case 'discovered-match':
+      return 'recovered'
+    case 'discovered-legacy':
+      return 'retained'
+    case 'duplicate-lower-priority':
+      return 'shadowed'
+    case 'tool-search-for-deferred':
+      return 'broker'
+    case 'always-visible':
+      return visibility.discovered ? 'retained' : null
+  }
+}
+
 function parsePositiveInteger(
   rawValue: string,
   optionName: '--page' | '--page-size',
@@ -1032,6 +1057,7 @@ function formatCodexReplFunctionToolLine(args: {
       : args.visibility.tool.isMcp
         ? 'mcp-bridge'
         : 'local'
+  const recoveryState = formatCodexReplToolRecoveryState(args.visibility)
   const flags = [
     `source=${source}`,
     isDeferredTool(args.visibility.tool) ? 'deferred' : null,
@@ -1039,6 +1065,7 @@ function formatCodexReplFunctionToolLine(args: {
     args.visibility.discovered && isDeferredTool(args.visibility.tool)
       ? `recovered=${args.visibility.recovered ? 'true' : 'false'}`
       : null,
+    recoveryState ? `recovery-state=${recoveryState}` : null,
     `decision=${args.visibility.selected ? 'selected' : 'hidden'}`,
     `selection-reason=${formatCodexReplToolDecisionReason(args.visibility.reason)}`,
   ].filter((value): value is string => value !== null)

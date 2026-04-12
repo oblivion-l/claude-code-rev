@@ -10,6 +10,7 @@ import { resetHooksConfigSnapshot } from 'src/utils/hooks/hooksConfigSnapshot.js
 import {
   createCodexReplSession,
   handleCodexReplPrompt,
+  resolveInitialConversationState,
   type CodexReplTurnEvent,
   type CodexReplTurnResult,
 } from './runReplCodex.js'
@@ -246,6 +247,102 @@ afterEach(() => {
 })
 
 describe('createCodexReplSession', () => {
+  it('reuses scan-and-repair for startup --continue in the same cwd', () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'startup_resume_old',
+        cwd: '/tmp/startup-repair',
+        conversationId: 'startup_resume_old',
+        lastResponseId: 'resp_startup_old',
+        updatedAt: '2026-04-10T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/startup-repair',
+      },
+    )
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'startup_resume_broken',
+        cwd: '/tmp/startup-repair',
+        conversationId: 'startup_resume_broken',
+        lastResponseId: 'resp_startup_broken',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/startup-repair',
+      },
+    )
+
+    writeFileSync(
+      join(configDir, 'codex-repl', 'states', 'startup_resume_broken.json'),
+      '{invalid json',
+      'utf8',
+    )
+
+    expect(
+      resolveInitialConversationState({
+        replProps: {
+          providerContext: {
+            continue: true,
+            cwd: '/tmp/startup-repair',
+          },
+        } as any,
+      }),
+    ).toEqual({
+      state: expect.objectContaining({
+        stateId: 'startup_resume_old',
+        cwd: '/tmp/startup-repair',
+        lastResponseId: 'resp_startup_old',
+      }),
+      globalFallback: undefined,
+    })
+  })
+
+  it('records startup global-fallback details when --continue recovers from another cwd', () => {
+    configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
+    process.env.CLAUDE_CODE_HEADLESS_STATE_DIR = configDir
+
+    setCodexReplState(
+      {
+        providerId: 'codex-repl',
+        stateId: 'startup_global_state',
+        cwd: '/tmp/startup-global-source',
+        conversationId: 'startup_global_state',
+        lastResponseId: 'resp_startup_global',
+        updatedAt: '2026-04-11T00:00:00.000Z',
+      },
+      {
+        cwd: '/tmp/startup-global-source',
+      },
+    )
+
+    expect(
+      resolveInitialConversationState({
+        replProps: {
+          providerContext: {
+            continue: true,
+            cwd: '/tmp/startup-global-requested',
+          },
+        } as any,
+      }),
+    ).toEqual({
+      state: expect.objectContaining({
+        stateId: 'startup_global_state',
+        cwd: '/tmp/startup-global-requested',
+        lastResponseId: 'resp_startup_global',
+      }),
+      globalFallback: {
+        sourceCwd: '/tmp/startup-global-source',
+        requestedCwd: '/tmp/startup-global-requested',
+      },
+    })
+  })
+
   it('streams a single successful turn', async () => {
     configDir = mkdtempSync(join(tmpdir(), 'codex-repl-config-'))
     process.env.CLAUDE_CONFIG_DIR = configDir

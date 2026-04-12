@@ -425,6 +425,11 @@ codex> /exit
 - `/status` 会使用与 headless 对齐的 wording 提示当前目录是否已有可继续的 persisted conversation state
 - `/status` 会追加 `Resume hint:`，在“当前目录已有 state”、“当前目录暂无 state”、“当前没有 cwd”三种情况下分别给出下一步建议
 
+当以 Codex REPL 启动参数使用 `--continue` / `--resume` 时：
+
+- 启动期恢复现在会复用与 `/resume` 相同的读时扫描修复逻辑，不再只依赖旧 pointer 命中。
+- 如果启动期 `--continue` 命中了非当前 cwd 的全局最近可用 state，当前会话仍保持请求 cwd，但 `/status` 会显示 `Session source: global-fallback ...` 说明恢复来源。
+
 当在 Codex REPL 中使用 `/new` 和 `/sessions` 时：
 
 - `/new` 会立即切到新的 persisted conversation state，并清空上一会话的上下文

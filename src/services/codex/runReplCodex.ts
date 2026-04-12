@@ -51,7 +51,6 @@ import {
   getCodexReplStateFilePath,
   listCodexReplStates,
   type CodexReplPersistedState,
-  getCodexReplState,
   resolveCodexReplStateWithRepair,
   setCodexReplState,
 } from './replState.js'
@@ -138,6 +137,14 @@ type CodexReplSessionsView = {
 type CodexReplResumeResolution = {
   state: CodexReplPersistedState
   sourceCwd?: string
+  globalFallback?: {
+    sourceCwd: string
+    requestedCwd: string
+  }
+}
+
+type CodexReplInitialStateResolution = {
+  state: CodexReplPersistedState | null
   globalFallback?: {
     sourceCwd: string
     requestedCwd: string
@@ -1280,11 +1287,11 @@ function resolveCodexReplStateId(
   return getSessionId()
 }
 
-function resolveInitialConversationState({
+export function resolveInitialConversationState({
   replProps,
 }: {
   replProps: REPLProps
-}): CodexReplPersistedState | null {
+}): CodexReplInitialStateResolution {
   const providerContext = replProps.providerContext
   const cwd = providerContext?.cwd
 
@@ -1293,19 +1300,27 @@ function resolveInitialConversationState({
   }
 
   let state: CodexReplPersistedState | null = null
+  let globalFallback:
+    | {
+        sourceCwd: string
+        requestedCwd: string
+      }
+    | undefined
 
   if (typeof providerContext?.resume === 'string') {
-    state = getCodexReplState({
+    state = resolveCodexReplPersistedStateForResume({
       stateId: providerContext.resume,
-    })
+    }).state
   } else if (providerContext?.continue) {
     if (!cwd) {
       throw new Error(getCodexReplContinueMissingCwdMessage())
     }
 
-    state = getCodexReplState({
+    const resolution = resolveCodexReplPersistedStateForResume({
       cwd,
     })
+    state = resolution.state
+    globalFallback = resolution.globalFallback
     if (!state?.lastResponseId) {
       throw new Error(getCodexReplContinueMissingStateMessage())
     }
@@ -1346,16 +1361,19 @@ function resolveInitialConversationState({
   )
 
   return {
-    providerId: 'codex-repl',
-    stateId,
-    cwd,
-    conversationId: state?.conversationId ?? stateId,
-    createdAt: state?.createdAt,
-    updatedAt: state?.updatedAt,
-    lastResponseId: state?.lastResponseId,
-    lastAssistantMessageUuid: state?.lastAssistantMessageUuid,
-    history: state?.history ?? [],
-    metadata: state?.metadata,
+    state: {
+      providerId: 'codex-repl',
+      stateId,
+      cwd,
+      conversationId: state?.conversationId ?? stateId,
+      createdAt: state?.createdAt,
+      updatedAt: state?.updatedAt,
+      lastResponseId: state?.lastResponseId,
+      lastAssistantMessageUuid: state?.lastAssistantMessageUuid,
+      history: state?.history ?? [],
+      metadata: state?.metadata,
+    },
+    globalFallback,
   }
 }
 
@@ -1770,7 +1788,7 @@ export async function runCodexRepl(
   }
 
   let session: CodexReplSession
-  let initialConversationState: CodexReplPersistedState | null
+  let initialConversationState: CodexReplInitialStateResolution
   let mcpTools: CodexMcpTool[]
   try {
     initialConversationState = resolveInitialConversationState({
@@ -1788,8 +1806,9 @@ export async function runCodexRepl(
       cwd: replProps.providerContext?.cwd,
       mcpTools,
       runtime: createCodexReplToolRuntime(args),
-      conversationState: initialConversationState,
+      conversationState: initialConversationState.state,
     })
+    session.setGlobalFallbackStatusLine(initialConversationState.globalFallback)
   } catch (error) {
     writeError(formatCodexReplError(error))
     return 1

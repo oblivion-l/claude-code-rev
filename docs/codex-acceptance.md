@@ -121,6 +121,7 @@ bun run codex:install-launchers
 - 脚本默认会为每条验收命令加 `45s` 超时，避免开放式回复拖慢整轮验收
 - 单条命令失败后，脚本会继续执行后续项，并在最后统一汇总
 - 脚本汇总中会直接列出失败项与 `repair:` 建议，便于定位下一步修复动作
+- `--full` 里的 persisted-state fail-fast 会在临时 `HOME`、`CLAUDE_CONFIG_DIR` 和临时工作目录下执行，避免被你当前机器上的历史会话状态污染
 - 只要有任一脚本化检查失败，脚本最终就会返回非零
 - API 侧 structured-output rejection 仍保留为手工检查项，因为它依赖“能到达 API 但会拒绝 `text.format`”的特定模型或 base URL 组合
 
@@ -260,12 +261,16 @@ bun run dev -p \
 执行：
 
 ```bash
-bun run dev -p --continue "Follow up on the prior answer"
+mkdir -p /tmp/codex-empty-home/.claude /tmp/codex-empty-cwd
+HOME=/tmp/codex-empty-home \
+CLAUDE_CONFIG_DIR=/tmp/codex-empty-home/.claude \
+cd /tmp/codex-empty-cwd && \
+bun run /path/to/claude-code-rev/src/bootstrap-entry.ts -p "Follow up on the prior answer" --continue
 ```
 
 预期：
 
-- 在新进程中执行时，命令退出非零
+- 在隔离的空配置目录和空工作目录下执行时，命令退出非零
 - 错误信息包含：
   `Codex provider continue requested but no persisted conversation state is available for the current directory.`
 
@@ -274,11 +279,16 @@ bun run dev -p --continue "Follow up on the prior answer"
 执行：
 
 ```bash
-bun run dev -p --resume "Follow up on the prior answer"
+mkdir -p /tmp/codex-empty-home/.claude /tmp/codex-empty-cwd
+HOME=/tmp/codex-empty-home \
+CLAUDE_CONFIG_DIR=/tmp/codex-empty-home/.claude \
+cd /tmp/codex-empty-cwd && \
+bun run /path/to/claude-code-rev/src/bootstrap-entry.ts -p "Follow up on the prior answer" --resume
 ```
 
 预期：
 
+- 在隔离的空配置目录和空工作目录下执行时，命令退出非零
 - 命令退出非零
 - 错误信息包含：
   `Codex provider resume requested but no persisted conversation state is available.`

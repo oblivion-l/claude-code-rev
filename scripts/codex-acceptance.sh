@@ -164,6 +164,71 @@ run_case() {
   rm -f "${output_file}"
 }
 
+run_case_with_isolated_state() {
+  local label="$1"
+  local expected_exit="$2"
+  local expect_pattern="$3"
+  local cmd="$4"
+  local repair_hint="${5:-Check the failing command output and rerun the matching local test or CLI step.}"
+
+  local display_cmd
+  display_cmd="env HOME=<temp-home> CLAUDE_CONFIG_DIR=<temp-claude-dir> bash -lc 'cd <temp-cwd> && ${cmd}'"
+  print_case_header "${label}" "${display_cmd}"
+
+  if [[ ${DRY_RUN} -eq 1 ]]; then
+    TOTAL_COUNT=$((TOTAL_COUNT + 1))
+    echo "Exit code: DRY-RUN"
+    echo "Result: PASS"
+    PASS_COUNT=$((PASS_COUNT + 1))
+    return 0
+  fi
+
+  local output_file
+  local temp_home
+  local temp_config_dir
+  local temp_cwd
+
+  output_file="$(mktemp)"
+  temp_home="$(mktemp -d)"
+  temp_config_dir="${temp_home}/.claude"
+  temp_cwd="$(mktemp -d)"
+  mkdir -p "${temp_config_dir}"
+
+  timeout "${CASE_TIMEOUT_SECONDS}s" \
+    env HOME="${temp_home}" CLAUDE_CONFIG_DIR="${temp_config_dir}" \
+      bash -lc "cd '${temp_cwd}' && ${cmd}" >"${output_file}" 2>&1
+  local exit_code=$?
+
+  local passed=0
+
+  if [[ "${expected_exit}" == 'nonzero' ]]; then
+    if [[ "${exit_code}" -ne 0 ]]; then
+      if [[ -z "${expect_pattern}" ]]; then
+        passed=1
+      elif grep -Eq "${expect_pattern}" "${output_file}"; then
+        passed=1
+      fi
+    fi
+  elif [[ "${exit_code}" -eq "${expected_exit}" ]]; then
+    if [[ -z "${expect_pattern}" ]]; then
+      passed=1
+    elif grep -Eq "${expect_pattern}" "${output_file}"; then
+      passed=1
+    fi
+  fi
+
+  record_result "${passed}" "${exit_code}" "${label}" "${repair_hint}"
+
+  if [[ "${passed}" -eq 0 ]]; then
+    echo "Output:"
+    sed -n '1,80p' "${output_file}"
+    echo "Suggested fix: ${repair_hint}"
+  fi
+
+  rm -f "${output_file}"
+  rm -rf "${temp_home}" "${temp_cwd}"
+}
+
 run_preflight() {
   run_case 'Preflight: bun version' 0 '' 'bun --version'
   run_case 'Preflight: node version' 0 '' 'node --version'
@@ -217,18 +282,18 @@ run_fail_fast() {
     "bun run dev -p --json-schema '{\"type\":\"object\",\"properties\":\"broken\"}' 'Return a JSON object with summary'" \
     'Fix the JSON Schema payload or rerun the schema compiler tests.'
 
-  run_case \
+  run_case_with_isolated_state \
     'Fail-fast: continue without state' \
     'nonzero' \
     'Codex provider continue requested but no persisted conversation state is available for the current directory\.' \
-    "bun run dev -p --continue 'Follow up on the prior answer'" \
+    "bun run '${REPO_ROOT}/src/bootstrap-entry.ts' -p 'Follow up on the prior answer' --continue" \
     'Check persisted-state scanning and sessionText wording before rerunning.'
 
-  run_case \
+  run_case_with_isolated_state \
     'Fail-fast: resume without persisted state' \
     'nonzero' \
     'Codex provider resume requested but no persisted conversation state is available\.' \
-    "bun run dev -p --resume 'Follow up on the prior answer'" \
+    "bun run '${REPO_ROOT}/src/bootstrap-entry.ts' -p 'Follow up on the prior answer' --resume" \
     'Check resume fail-fast wording and persisted-state availability handling.'
 }
 
